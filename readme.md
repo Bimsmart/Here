@@ -1,9 +1,9 @@
-# GeoPresence
+# Here
 
 **A geospatial personal-safety application for journey check-ins and
 trusted-contact notifications.**
 
-GeoPresence helps people share a planned journey with someone they
+Here helps people share a planned journey with someone they
 trust, confirm arrival, and trigger a follow-up notification when an
 expected check-in is missed.
 
@@ -44,13 +44,13 @@ expected check-in is missed.
 
 ## 1. Overview
 
-GeoPresence combines geographic location, expected arrival time,
+Here combines geographic location, expected arrival time,
 user-confirmed check-ins, and trusted-contact notifications in one
 workflow.
 
 The guiding question is:
 
-**"Are you there?"**
+**"Where are you?"**
 
 A user creates a journey, selects a destination and expected arrival
 time, and nominates a trusted contact. The user can confirm arrival or
@@ -58,7 +58,7 @@ extend the expected arrival time. If the journey becomes overdue, the
 system prompts the user and can notify the trusted contact after a
 configurable grace period.
 
-GeoPresence is designed to support timely follow-up. It does **not**
+Here is designed to support timely follow-up. It does **not**
 determine that a user is in danger solely because a check-in is missed.
 
 ## 2. Problem Statement
@@ -68,13 +68,13 @@ field work may not have a structured way to confirm arrival to someone
 they trust. When an expected check-in is missed, the absence of timely
 information can delay follow-up.
 
-GeoPresence proposes a geospatial check-in and journey-monitoring system
+Here proposes a geospatial check-in and journey-monitoring system
 that allows users to share journey expectations, confirm arrival, and
 notify trusted contacts when a planned check-in is overdue.
 
 ## 3. Proposed Solution
 
-GeoPresence provides a lightweight web application for:
+Here provides a lightweight web application for:
 
 1.  Creating a journey with an origin, destination, and expected arrival
     time.
@@ -243,7 +243,7 @@ service. It must not depend on the user's browser remaining open.
 
 ## 9. Data Requirements
 
-GeoPresence primarily generates its own operational data. It does not
+Here primarily generates its own operational data. It does not
 require a large external incident dataset for the MVP.
 
 -   **Device location:** coordinates obtained only with user permission.
