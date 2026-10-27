@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f2ec">
+  <meta name="referrer" content="no-referrer">
+  <title>Shared journey location</title>
+  <style>
+    :root { color-scheme: light; --ink: #202a27; --muted: #69736d; --forest: #1e5044; --line: #dfe2d9; --paper: #f3f2ec; --white: #fffefa; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; padding: 32px 16px; display: grid; place-items: center; color: var(--ink); background: var(--paper); font: 15px/1.55 "Segoe UI", sans-serif; }
+    main { width: min(100%, 520px); padding: 28px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); box-shadow: 0 12px 36px #202a2710; }
+    .eyebrow { color: var(--forest); font-size: 11px; font-weight: 700; letter-spacing: .12em; }
+    .logo-crop { width: 140px; height: 44px; margin-bottom: 16px; overflow: hidden; }
+    .logo-crop img { display: block; width: 140px; height: auto; transform: translateY(-10px); }
+    h1 { margin: 8px 0; font: 500 32px/1.12 Georgia, serif; }
+    p { color: var(--muted); }
+    .location { margin: 24px 0; padding: 18px; border: 1px solid var(--line); border-radius: 6px; background: #f8f8f3; }
+    .location a { display: inline-block; margin-top: 12px; padding: 10px 14px; border-radius: 4px; color: white; background: var(--forest); font-weight: 700; text-decoration: none; }
+    button { padding: 9px 12px; border: 1px solid var(--line); border-radius: 4px; color: var(--forest); background: white; font: inherit; font-weight: 700; cursor: pointer; }
+    .notice { font-size: 12px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="logo-crop"><img src="/logo/geopresence-logo.png" alt=""></div>
+    <p class="eyebrow">SHARED LOCATION</p>
+    <h1 id="heading">Loading shared journey…</h1>
+    <p id="status" role="status" aria-live="polite">Checking for a location shared by the traveler.</p>
+    <button id="refresh" type="button">Refresh latest location</button>
+    <section class="location" id="location" hidden>
+      <strong id="destination"></strong>
+      <p id="details"></p>
+      <a id="map-link" target="_blank" rel="noopener noreferrer">Open location in Google Maps ↗</a>
+    </section>
+    <p class="notice">Shows the latest point the traveler chose to share. Location is not tracked continuously.</p>
+  </main>
+  <script>
+    const token = location.hash.slice(1);
+    const heading = document.querySelector("#heading");
+    const status = document.querySelector("#status");
+    const locationCard = document.querySelector("#location");
+    const dateText = (value) => value ? new Date(value).toLocaleString() : "Time unavailable";
+    let loadedLocation = false;
+    async function loadSharedLocation() {
+      if (!token) {
+        heading.textContent = "Shared location unavailable";
+        status.textContent = "This link is missing its access key.";
+        return;
+      }
+      try {
+        const response = await fetch("/api/shared-locations/lookup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ share_token: token }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "This link is no longer available.");
+        loadedLocation = true;
+        heading.textContent = "A journey location was shared with you.";
+        if (!data.location) {
+          status.textContent = "The traveler has not shared a location yet. Check again after they choose Share location.";
+          return;
+        }
+        status.textContent = `Journey status: ${data.status.toLowerCase().replaceAll("_", " ")}.`;
+        document.querySelector("#destination").textContent = `Destination: ${data.destination_label}`;
+        const { latitude, longitude, accuracy_meters, shared_at } = data.location;
+        document.querySelector("#details").textContent = `Last shared ${dateText(shared_at)}${accuracy_meters == null ? "" : ` · accuracy about ±${Math.round(accuracy_meters)} m`}.`;
+        const mapUrl = `https://maps.google.com/?q=${latitude},${longitude}`;
+        const mapLink = document.querySelector("#map-link");
+        mapLink.href = mapUrl;
+        locationCard.hidden = false;
+      } catch (error) {
+        if (loadedLocation) {
+          status.textContent = `Could not refresh: ${error.message} The last location shown may be out of date.`;
+        } else {
+          heading.textContent = "Shared location unavailable";
+          status.textContent = error.message;
+        }
+      }
+    }
+    document.querySelector("#refresh").addEventListener("click", loadSharedLocation);
+    loadSharedLocation();
+    setInterval(() => { if (!document.hidden) loadSharedLocation(); }, 30_000);
+  </script>
+</body>
+</html>
+

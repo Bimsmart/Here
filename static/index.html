@@ -1,0 +1,74 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f2ec">
+  <title>Journey check-ins</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/styles.css?v=20261023-separated-trip-tabs">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Home"><span class="brand-logo-crop"><img src="/logo/geopresence-logo.png" alt=""></span></a>
+    <nav class="main-nav" aria-label="Primary navigation">
+      <button class="nav-tab is-active" type="button" data-view="plan">Plan journey</button>
+      <button class="report-nav-button" type="button" data-view="report">Submit report</button>
+      <button class="nav-tab" type="button" data-view="journeys">Your journey</button>
+      <button class="nav-tab" type="button" data-view="shared">Shared journeys</button>
+      <button class="nav-tab" type="button" data-view="chat">Chats</button>
+      <button class="nav-tab" type="button" data-view="settings">Settings</button>
+    </nav>
+    <div class="topbar-right">
+      <button id="auth-trigger" class="auth-trigger" type="button">Log in</button>
+      <div id="account-summary" class="account-summary" hidden><span id="account-avatar" class="avatar" aria-hidden="true">GP</span><span id="account-name" class="account-name"></span><button id="logout-button" class="logout-button" type="button">Log out</button></div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="rail">
+      <section class="view-panel is-active" data-view-panel="plan" aria-label="Plan a journey">
+        
+        <section class="form-section" aria-labelledby="new-journey-heading">
+          <div class="section-heading"><h2 id="new-journey-heading">Plan a journey</h2><span class="step-label">01 / 01</span></div>
+          <form id="journey-form">
+            <label class="field-label" for="destination-label">Trip title</label><input id="destination-label" name="destination_label" maxlength="120" placeholder="e.g. Evening commute" required>
+            <div class="field-row"><div class="field grow"><label class="field-label" for="departure-at">Departure time</label><input id="departure-at" name="departure_at" type="datetime-local" required></div></div><p class="trip-estimate-preview" id="trip-estimate">Choose a starting point and destination to calculate the arrival time and extended time.</p>
+            <div class="field-label location-label">Set a location <span>Search or click the map</span></div>
+            <div class="pick-row" role="group" aria-label="Choose which map point to set"><button class="pick-button is-selected" type="button" data-pick="destination">Destination <span class="pick-dot destination-dot"></span></button><button class="pick-button" type="button" data-pick="origin">Starting point <span class="pick-dot origin-dot"></span></button><button class="pick-button" type="button" data-pick="incident">Report location <span class="pick-dot incident-dot"></span></button></div>
+            <label class="field-label search-label" for="location-search">Find a place <span id="search-target-label">Setting destination</span></label>
+            <div class="location-search-row"><input id="location-search" type="search" maxlength="160" placeholder="Address, landmark or place name" autocomplete="off"><button id="search-location" type="button">Search</button></div>
+            <ul class="location-results" id="location-results" role="listbox" aria-label="Place search results" hidden></ul><p class="geocoder-credit">Search results &copy; OpenStreetMap contributors</p>
+            <button class="text-action" id="use-location" type="button"><span aria-hidden="true">&#9678;</span> Use my current location as start</button><p class="coordinate-readout" id="coordinate-readout">No destination selected yet</p>
+            <div class="field-row contact-row"><div class="field grow"><label class="field-label" for="contact-name">Trusted contact</label><input id="contact-name" name="contact_name" maxlength="120" placeholder="Name" required></div><div class="field grow"><label class="field-label" for="contact-email">Contact email</label><input id="contact-email" name="contact_email" type="email" maxlength="254" placeholder="name@example.com" required></div></div>
+            <label class="consent-row" for="consent"><input id="consent" type="checkbox" required><span>I have permission to share journey updates with this contact.</span></label>
+            <button class="primary-button" type="submit"><span>Create journey</span><span aria-hidden="true">&rarr;</span></button><p class="form-message" id="form-message" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+      </section>
+
+      <section class="view-panel" data-view-panel="journeys" aria-label="Your journeys" hidden><section class="journeys-section"><div class="section-heading list-heading"><h2>Your journeys</h2><span class="count-pill" id="journey-count">0</span></div><div class="journey-list" id="journey-list" aria-live="polite"><div class="empty-state">Your planned journeys will appear here.</div></div></section></section>
+
+      <section class="view-panel" data-view-panel="shared" aria-label="Shared journeys" hidden><section class="journeys-section"><div class="section-heading list-heading"><h2>Shared journeys</h2><span class="count-pill" id="shared-journey-count">0</span></div><div class="journey-list" id="shared-journey-list" aria-live="polite"><div class="empty-state">Journeys shared with you will appear here.</div></div></section></section>
+
+      <section class="view-panel" data-view-panel="chat" aria-label="Chats" hidden><section class="journeys-section"><div class="section-heading list-heading"><h2>Chats</h2></div><label class="field-label" for="chat-trip-select">Choose a trip</label><select id="chat-trip-select" class="chat-trip-select"></select><div class="empty-state" id="chat-empty">Chats will appear here when you plan a journey or someone shares one with you.</div><section class="trip-collaboration chat-room" id="chat-room" data-collaboration-id="" hidden><div class="trip-collab-heading"><strong id="chat-room-title">Trip members</strong><span>Live chat</span></div><div class="trip-members" data-trip-members>Loading participants…</div><div class="trip-chat-messages" data-trip-messages aria-live="polite"></div><form class="trip-chat-form"><input name="body" maxlength="1000" placeholder="Message trip members" aria-label="Message trip members" required><button type="submit">Send</button></form><p class="trip-feedback" data-chat-feedback aria-live="polite"></p></section></section></section>
+
+
+      <section class="view-panel" data-view-panel="report" aria-labelledby="report-heading" hidden><section class="reports-section report-compose-section"><h2 id="report-heading">Submit a report</h2><form id="incident-form" class="incident-form"><label class="field-label" for="incident-title">Report title</label><input id="incident-title" name="title" maxlength="120" placeholder="e.g. Flooding reported on road" required><div class="field-row incident-meta-row"><div class="field grow"><label class="field-label" for="incident-category">Category</label><select id="incident-category" name="category" required><option value="road_blockage">Road blockage</option><option value="flooding">Flooding</option><option value="robbery_report">Robbery report</option><option value="assault_report">Assault report</option><option value="civil_unrest">Civil unrest</option><option value="fire">Fire</option><option value="infrastructure_disruption">Infrastructure disruption</option><option value="other">Other</option></select></div><div class="field grow"><label class="field-label" for="incident-source">Source type</label><select id="incident-source" name="source_type"><option value="community">Community</option><option value="news">News article</option><option value="official">Official alert</option><option value="field_team">Field team</option></select></div></div><label class="field-label incident-desc-label" for="incident-description">Description</label><textarea id="incident-description" name="description" maxlength="2000" placeholder="Describe what was reported without naming alleged suspects." required></textarea><label class="field-label incident-url-label" for="incident-url">Source link <span>Required for news</span></label><input id="incident-url" name="source_url" type="url" maxlength="2000" placeholder="https://example.com/article"><label class="field-label incident-time-label" for="incident-reported-at">When did it reportedly happen? <span>Optional</span></label><input id="incident-reported-at" name="reported_at" type="datetime-local"><button id="set-report-location" class="text-action" type="button">Set report location on map</button><p class="incident-location-readout" id="incident-location-readout">Click the map to set this report's location.</p><label class="consent-row report-consent" for="report-acknowledgement"><input id="report-acknowledgement" type="checkbox" required><span>This is a report, not a verified finding. I have not included identifying allegations.</span></label><button class="secondary-button" type="submit">Submit report <span aria-hidden="true">&rarr;</span></button><p class="report-message" id="report-message" role="status" aria-live="polite"></p></form></section></section>
+
+      <section class="view-panel" data-view-panel="settings" aria-label="Settings" hidden><section class="settings-section"><div id="settings-account" class="account-card"></div><details class="route-reports"><summary>Reports matching your routes <span class="count-pill" id="incident-count">0</span></summary><div class="incident-list" id="incident-list" aria-live="polite"><div class="empty-state">No current reports match your saved journey routes.</div></div></details><p id="news-sync-status" class="news-sync-status" aria-live="polite">Live news status loading...</p></section></section>
+      <p class="privacy-note"><span aria-hidden="true">&#9672;</span> Location is only saved when you choose to share it.</p>
+    </aside>
+    <section class="map-panel" aria-label="Journey map"><div id="map" role="application" aria-label="Interactive map. Select a point to place the chosen journey marker."></div><div class="map-toolbar"><span class="map-live"><i></i> JOURNEY MAP</span><button class="map-control" id="fit-map" type="button" title="Fit map to selected journey">Fit journey</button></div><div class="map-legend"><span><i class="legend-origin"></i> Starting point</span><span><i class="legend-destination"></i> Destination</span><span><i class="legend-incident"></i> Report</span></div><div class="map-caption"><span class="caption-mark">N</span><span>Map data &copy; OpenStreetMap contributors</span></div><div class="map-notice" id="map-notice" role="status"></div></section>
+  </main>
+
+  <div id="auth-dialog" class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title" hidden><div class="auth-scrim" data-close-auth></div><section class="auth-panel"><button class="close-auth" type="button" data-close-auth aria-label="Close account dialog">&times;</button><p class="eyebrow">YOUR ACCOUNT</p><h2 id="auth-title">Log in</h2><div class="auth-switch" role="tablist" aria-label="Account action"><button class="is-active" type="button" data-auth-mode="login" role="tab" aria-selected="true">Log in</button><button type="button" data-auth-mode="signup" role="tab" aria-selected="false">Sign up</button></div><form id="login-form" class="auth-form"><label class="field-label" for="login-email">Email address</label><input id="login-email" name="email" type="email" autocomplete="email" required><label class="field-label auth-field-label" for="login-password">Password</label><input id="login-password" name="password" type="password" autocomplete="current-password" required><button class="primary-button" type="submit"><span>Log in</span><span aria-hidden="true">&rarr;</span></button></form><form id="signup-form" class="auth-form" hidden><label class="field-label" for="signup-name">Your name</label><input id="signup-name" name="display_name" maxlength="80" autocomplete="name" required><label class="field-label auth-field-label" for="signup-email">Email address</label><input id="signup-email" name="email" type="email" autocomplete="email" required><label class="field-label auth-field-label" for="signup-password">Password</label><input id="signup-password" name="password" type="password" minlength="8" autocomplete="new-password" required><button class="primary-button" type="submit"><span>Create account</span><span aria-hidden="true">&rarr;</span></button></form><p id="auth-message" class="form-message" role="status" aria-live="polite"></p></section></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script><script src="/app.js?v=20261023-separated-trip-tabs" defer></script>
+</body>
+</html>
+
+
+
