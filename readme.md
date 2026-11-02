@@ -12,8 +12,9 @@ expected check-in is missed.
 > project repository.
 
 > **Local implementation:** This workspace includes a FastAPI prototype with
-> SQLite persistence, traveller accounts, a Leaflet journey map, manual
-> arrival confirmation and ETA extension controls, trip sharing between existing accounts, participant
+> SQLite persistence for local development and PostgreSQL support for
+> deployment, traveller accounts, a Leaflet journey map, manual arrival
+> confirmation and ETA extension controls, trip sharing between existing accounts, participant
 > chat, opt-in live location, historical trip views, and KML export. It also
 > supports incident submissions, source links, route-buffer matching, report
 > expiry, and moderator-only report controls with an audit history. Without
@@ -326,7 +327,8 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1
 
 Open `http://127.0.0.1:8000` for the app or
 `http://127.0.0.1:8000/docs` for the API documentation. Journey data is
-stored in `data/geopresence.sqlite3` by default. The browser loads Leaflet,
+stored in `data/geopresence.sqlite3` by default. Set `DATABASE_URL` to use
+PostgreSQL instead. The browser loads Leaflet,
 map tiles, and fonts from external providers, so those map assets require
 internet access. Place search uses OpenStreetMap's public Nominatim service;
 uncached searches are limited to one request per second and repeated queries
@@ -422,9 +424,33 @@ SMTP_PASSWORD=
 SMTP_FROM=
 GEOCODER_CONTACT=
 MODERATOR_TOKEN=
+DATABASE_URL=
 ROUTE_ALERT_BUFFER_METERS=500
 REPORT_EXPIRY_DAYS=7
 ```
+
+### PostgreSQL deployment and migration
+
+The backend uses SQLite when `DATABASE_URL` is unset and PostgreSQL when it
+is set. Install `requirements.txt` so the PostgreSQL driver is available, then
+set `DATABASE_URL` on the API service to its PostgreSQL connection string. The
+schema is initialized at application startup. Keep the database URL private
+and use the private/internal database URL when the API and database share a
+hosting project.
+
+To copy existing local data, point `DATABASE_URL` at an empty PostgreSQL
+database and run this once from the repository root:
+
+``` powershell
+$env:DATABASE_URL = "postgresql://user:password@host:5432/geopresence"
+python scripts/migrate_sqlite_to_postgres.py
+```
+
+The script copies users, journeys, memberships, chat, location history,
+notifications, reports, and moderation history. It refuses to merge into a
+database that already contains rows. Back up the SQLite file and verify the
+destination before switching the deployed API to PostgreSQL. Existing user
+password hashes and session tokens are copied as-is.
 
 Run with `python -m uvicorn app.main:app --reload --host 127.0.0.1
 --env-file .env` to load local settings. Use placeholder values in example

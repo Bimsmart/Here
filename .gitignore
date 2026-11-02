@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.run-deps/
 .env
 data/
 *.log

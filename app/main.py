@@ -26,10 +26,18 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request as FastAPIReq
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # SQLite remains available for local development installs.
+    psycopg = None
+    dict_row = None
+
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT / "static"
 DATABASE_PATH = Path(os.getenv("GEOPRESENCE_DATABASE", ROOT / "data" / "geopresence.sqlite3"))
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 WORKER_INTERVAL_SECONDS = 10
 NEWS_SYNC_INTERVAL_SECONDS = 900
 MAX_NEWS_FEEDS = 10
@@ -182,7 +190,43 @@ def parse_live_feed(feed_content: bytes) -> tuple[str, list[dict]]:
     return feed_title[:120], parsed_entries
 
 
-def connect_db() -> sqlite3.Connection:
+class PostgresConnection:
+    """Small DB-API adapter so the existing qmark SQL works with psycopg."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def execute(self, query: str, parameters=()):
+        if query.strip().upper() == "BEGIN IMMEDIATE":
+            # Preserve the worker's single-claim behavior if multiple replicas run.
+            return self.connection.execute("SELECT pg_advisory_xact_lock(61572026)")
+        return self.connection.execute(query.replace("?", "%s"), parameters)
+
+    def commit(self) -> None:
+        self.connection.commit()
+
+    def rollback(self) -> None:
+        self.connection.rollback()
+
+    def close(self) -> None:
+        self.connection.close()
+
+
+DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError,) + ((psycopg.IntegrityError,) if psycopg else ())
+
+
+def connect_db():
+    if DATABASE_URL:
+        if psycopg is None:
+            raise RuntimeError("DATABASE_URL is set but psycopg is not installed; install requirements.txt")
+        postgres_url = DATABASE_URL
+        if postgres_url.startswith("postgres://"):
+            postgres_url = "postgresql://" + postgres_url.removeprefix("postgres://")
+        return PostgresConnection(psycopg.connect(
+            postgres_url,
+            connect_timeout=10,
+            row_factory=dict_row,
+        ))
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DATABASE_PATH, timeout=10)
     connection.row_factory = sqlite3.Row
@@ -190,9 +234,21 @@ def connect_db() -> sqlite3.Connection:
     return connection
 
 
+def _table_columns(connection, table_name: str) -> set[str]:
+    if DATABASE_URL:
+        rows = connection.execute(
+            "SELECT column_name AS name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = ?",
+            (table_name,),
+        ).fetchall()
+    else:
+        rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {row["name"] for row in rows}
+
+
 def init_db() -> None:
     with closing(connect_db()) as connection:
-        connection.executescript(
+        schema = (
             """
             CREATE TABLE IF NOT EXISTS journeys (
                 id TEXT PRIMARY KEY,
@@ -229,7 +285,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 display_name TEXT NOT NULL,
-                email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                email TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
@@ -334,9 +390,23 @@ def init_db() -> None:
             );
             """
         )
-        journey_columns = {
-            row["name"] for row in connection.execute("PRAGMA table_info(journeys)").fetchall()
-        }
+        if DATABASE_URL:
+            # PostgreSQL requires referenced tables to exist before their FK is declared.
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )"""
+            )
+            for statement in schema.split(";"):
+                if statement.strip():
+                    connection.execute(statement)
+        else:
+            connection.executescript(schema)
+        journey_columns = _table_columns(connection, "journeys")
         if "route_coordinates" not in journey_columns:
             connection.execute("ALTER TABLE journeys ADD COLUMN route_coordinates TEXT")
         if "route_source" not in journey_columns:
@@ -360,18 +430,14 @@ def init_db() -> None:
                 (secrets.token_urlsafe(32), row["id"]),
             )
         connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS journeys_share_token ON journeys(share_token)")
-        incident_columns = {
-            row["name"] for row in connection.execute("PRAGMA table_info(incident_reports)").fetchall()
-        }
+        incident_columns = _table_columns(connection, "incident_reports")
         if "source_published_at" not in incident_columns:
             connection.execute("ALTER TABLE incident_reports ADD COLUMN source_published_at TEXT")
         connection.execute(
             """UPDATE journeys SET route_source = 'unavailable'
                WHERE route_coordinates IS NULL AND origin_lat IS NULL AND origin_lon IS NULL"""
         )
-        moderation_columns = {
-            row["name"] for row in connection.execute("PRAGMA table_info(moderation_events)").fetchall()
-        }
+        moderation_columns = _table_columns(connection, "moderation_events")
         if "changes_json" not in moderation_columns:
             connection.execute(
                 "ALTER TABLE moderation_events ADD COLUMN changes_json TEXT NOT NULL DEFAULT '{}'"
@@ -1179,9 +1245,9 @@ def process_overdue_once() -> None:
             if deadline > now:
                 continue
             connection.execute(
-                "INSERT OR IGNORE INTO notification_events "
+                "INSERT INTO notification_events "
                 "(id, journey_id, idempotency_key, status, created_at, next_attempt_at) "
-                "VALUES (?, ?, ?, 'PENDING', ?, ?)",
+                "VALUES (?, ?, ?, 'PENDING', ?, ?) ON CONFLICT DO NOTHING",
                 (
                     str(uuid4()),
                     journey["id"],
@@ -1336,7 +1402,7 @@ def sign_up(payload: UserSignUp) -> dict:
                    VALUES (?, ?, ?, ?, ?)""",
                 (user_id, payload.display_name, payload.email, password_hash(payload.password), now),
             )
-        except sqlite3.IntegrityError as error:
+        except DB_INTEGRITY_ERRORS as error:
             raise HTTPException(status_code=409, detail="An account with that email already exists") from error
         token, expires_at = create_session(connection, user_id)
         connection.commit()
@@ -1692,7 +1758,7 @@ def invite_journey_member(
         if invitee["id"] == user["id"]:
             raise HTTPException(status_code=409, detail="You already own this journey")
         connection.execute(
-            "INSERT OR IGNORE INTO journey_members (journey_id, user_id, joined_at) VALUES (?, ?, ?)",
+            "INSERT INTO journey_members (journey_id, user_id, joined_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
             (journey_id, invitee["id"], timestamp()),
         )
         connection.commit()

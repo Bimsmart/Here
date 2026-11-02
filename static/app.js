@@ -137,7 +137,10 @@ function setPoint(kind, latitude, longitude) {
   points[kind] = { latitude, longitude };
   if (map) {
     if (markers[kind]) map.removeLayer(markers[kind]);
-    markers[kind] = L.marker([latitude, longitude], { icon: markerIcon(kind) }).addTo(map);
+    markers[kind] = L.marker([latitude, longitude], {
+      icon: markerIcon(kind),
+      bubblingMouseEvents: true,
+    }).addTo(map);
     markers[kind].bindTooltip(kind === "origin" ? "Starting point" : kind === "incident" ? "Report location" : "Destination");
     if (kind !== "incident" && points.origin && points.destination) {
       map.fitBounds([
@@ -900,11 +903,13 @@ function renderJourneyMarkers() {
     if (!markers[`journey-${journey.id}`]) {
       markers[`journey-${journey.id}`] = L.marker([journey.destination_lat, journey.destination_lon], {
         icon: markerIcon("destination"),
+        bubblingMouseEvents: true,
       }).addTo(map).bindTooltip(escapeHtml(journey.destination_label));
     }
     if (journey.origin_lat != null && journey.origin_lon != null && !markers[`origin-${journey.id}`]) {
       markers[`origin-${journey.id}`] = L.marker([journey.origin_lat, journey.origin_lon], {
         icon: markerIcon("origin"),
+        bubblingMouseEvents: true,
       }).addTo(map).bindTooltip("Starting point");
     }
     const route = journey.route_coordinates || (journey.origin_lat == null ? null : [
