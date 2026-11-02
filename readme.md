@@ -11,7 +11,7 @@ expected check-in is missed.
 > described here are planned functionality unless implemented in the
 > project repository.
 
-> **Local implementation:** This workspace includes a FastAPI prototype with
+> **Local implementation:** This workspace includes a FastAPI web prototype with
 > SQLite persistence for local development and PostgreSQL support for
 > deployment, traveller accounts, a Leaflet journey map, manual arrival
 > confirmation and ETA extension controls, trip sharing between existing accounts, participant
@@ -21,6 +21,11 @@ expected check-in is missed.
 > SMTP settings, overdue events are recorded locally and no contact email is
 > sent. The app is intended for localhost development and is not suitable for
 > real safety monitoring or exposure to an untrusted network.
+>
+> An initial Expo mobile client is in `mobile/`. It authenticates with Supabase
+> Auth and reads/writes the migrated Supabase PostgreSQL database under RLS.
+> It currently supports sign-in, journey listing, map point selection, and
+> journey creation. Other mobile workflows are still being ported.
 
 ## Table of Contents
 
@@ -431,9 +436,10 @@ REPORT_EXPIRY_DAYS=7
 
 ### PostgreSQL deployment and migration
 
-The backend uses SQLite when `DATABASE_URL` is unset and PostgreSQL when it
-is set. Supabase provides the PostgreSQL database; it does not replace the
-FastAPI service or the app's existing email/password authentication. Install
+The web backend uses SQLite when `DATABASE_URL` is unset and PostgreSQL when it
+is set. Supabase provides the PostgreSQL database. The Expo client uses
+Supabase Auth and the database directly under row-level security; the existing
+web prototype continues to use FastAPI and its local authentication. Install
 `requirements.txt`, create a Supabase project, then copy its database URL from
 the project's **Connect** panel. For an IPv4-only backend host, use the
 Supabase **Session pooler** connection. Direct connections require an
@@ -467,6 +473,19 @@ Configure
 `NEWS_FEED_URLS` as a semicolon-separated list of trusted RSS/Atom feeds that
 include GeoRSS point coordinates to supplement/replace the default GDACS
 feed. A moderator can trigger a one-off sync from the app.
+
+### Expo mobile client
+
+See [`mobile/README.md`](mobile/README.md) for Expo setup. The mobile app only
+uses `EXPO_PUBLIC_SUPABASE_URL` and
+`EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; never put `DATABASE_URL` or a service
+role key in its environment. Supabase SQL migrations are in `supabase/migrations/`.
+The secure legacy account-link Edge Function is in
+`supabase/functions/link-legacy-account/` and must be deployed with JWT
+verification enabled before existing users can recover their old journeys.
+Install the root project's CLI dependency with `npm install`, authenticate with
+`npx supabase login`, then deploy it using
+`npx supabase functions deploy link-legacy-account --project-ref YOUR_PROJECT_REF --use-api`.
 
 ## 13. Testing Scenarios
 

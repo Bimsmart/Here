@@ -1,0 +1,4 @@
+project_id = "here"
+
+[functions.link-legacy-account]
+verify_jwt = true

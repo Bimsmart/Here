@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Here",
+    "slug": "here-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "plugins": [
+      ["expo-location", { "locationWhenInUsePermission": "Allow Here to use your location to set the start of a journey." }]
+    ],
+    "ios": { "supportsTablet": true },
+    "android": { "package": "app.here.safety" }
+  }
+}

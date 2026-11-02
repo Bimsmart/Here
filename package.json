@@ -1,0 +1,7 @@
+{
+  "name": "here-supabase-tools",
+  "private": true,
+  "devDependencies": {
+    "supabase": "2.122.0"
+  }
+}

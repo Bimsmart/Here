@@ -2,6 +2,8 @@ __pycache__/
 *.py[cod]
 .venv/
 .run-deps/
+**/node_modules/
+**/.expo/
 .env
 data/
 *.log
