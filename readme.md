@@ -432,17 +432,21 @@ REPORT_EXPIRY_DAYS=7
 ### PostgreSQL deployment and migration
 
 The backend uses SQLite when `DATABASE_URL` is unset and PostgreSQL when it
-is set. Install `requirements.txt` so the PostgreSQL driver is available, then
-set `DATABASE_URL` on the API service to its PostgreSQL connection string. The
-schema is initialized at application startup. Keep the database URL private
-and use the private/internal database URL when the API and database share a
-hosting project.
+is set. Supabase provides the PostgreSQL database; it does not replace the
+FastAPI service or the app's existing email/password authentication. Install
+`requirements.txt`, create a Supabase project, then copy its database URL from
+the project's **Connect** panel. For an IPv4-only backend host, use the
+Supabase **Session pooler** connection. Direct connections require an
+IPv6-capable runtime unless the project has Supabase's IPv4 add-on. Set the
+URL as `DATABASE_URL` on the backend host (and in local `.env` for migration).
+Keep it private; never put it in the web or mobile client. The schema is
+initialized at application startup. See the [Supabase connection guide](https://supabase.com/docs/guides/database/connecting-to-postgres).
 
-To copy existing local data, point `DATABASE_URL` at an empty PostgreSQL
+To copy existing local data, point `DATABASE_URL` at an empty Supabase
 database and run this once from the repository root:
 
 ``` powershell
-$env:DATABASE_URL = "postgresql://user:password@host:5432/geopresence"
+$env:DATABASE_URL = "<Supabase connection URL from the Connect panel>"
 python scripts/migrate_sqlite_to_postgres.py
 ```
 
