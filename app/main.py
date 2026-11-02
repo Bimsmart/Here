@@ -368,6 +368,7 @@ def init_db() -> None:
                 expires_at TEXT NOT NULL,
                 is_visible INTEGER NOT NULL DEFAULT 1,
                 duplicate_of TEXT REFERENCES incident_reports(id),
+                created_by TEXT,
                 CHECK (category IN ('robbery_report', 'assault_report', 'road_blockage', 'civil_unrest', 'flooding', 'fire', 'infrastructure_disruption', 'other')),
                 CHECK (source_type IN ('community', 'news', 'official', 'field_team')),
                 CHECK (verification_status IN ('unverified', 'under_review', 'corroborated', 'confirmed', 'disputed', 'expired'))
@@ -433,6 +434,8 @@ def init_db() -> None:
         incident_columns = _table_columns(connection, "incident_reports")
         if "source_published_at" not in incident_columns:
             connection.execute("ALTER TABLE incident_reports ADD COLUMN source_published_at TEXT")
+        if "created_by" not in incident_columns:
+            connection.execute("ALTER TABLE incident_reports ADD COLUMN created_by TEXT")
         connection.execute(
             """UPDATE journeys SET route_source = 'unavailable'
                WHERE route_coordinates IS NULL AND origin_lat IS NULL AND origin_lon IS NULL"""

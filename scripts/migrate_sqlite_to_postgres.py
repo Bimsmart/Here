@@ -8,9 +8,12 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+load_dotenv(ROOT / ".env")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if not DATABASE_URL:
@@ -41,6 +44,12 @@ def main() -> None:
     init_db()
     with closing(sqlite3.connect(SOURCE_PATH)) as source, closing(connect_db()) as target:
         source.row_factory = sqlite3.Row
+        source.execute("BEGIN")
+        source_tables = {
+            row[0] for row in source.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
         existing = {
             table: target.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()["count"]
             for table in TABLES
@@ -55,7 +64,13 @@ def main() -> None:
         copied = {}
         try:
             for table in TABLES:
-                rows = source.execute(f"SELECT * FROM {table}").fetchall()
+                source_table = table
+                if table == "auth_sessions" and source_table not in source_tables and "user_sessions" in source_tables:
+                    source_table = "user_sessions"
+                if source_table not in source_tables:
+                    copied[table] = 0
+                    continue
+                rows = source.execute(f"SELECT * FROM {source_table}").fetchall()
                 if not rows:
                     copied[table] = 0
                     continue
