@@ -16,16 +16,20 @@ Expo public environment.
    The project ref is the part before `.supabase.co` in the Project URL.
 3. From this folder, run `npm install`, then `npx expo start`.
 
-The first screen supports email/password accounts, lists the signed-in user's
-journeys, and creates a journey by tapping a destination on the map. It can use
-device location as the optional origin. Existing local accounts link to
-Supabase Auth after email confirmation and a server-side check of their old
-password. New accounts can confirm their email before signing in.
+The app supports email/password accounts, journey creation with place search
+and an estimated driving arrival time, trusted-contact sharing, foreground
+live location sharing, journey chat, and community incident reports on a map.
+Existing local accounts link to Supabase Auth after email confirmation and a
+server-side check of their old password. New accounts can confirm their email
+before signing in.
 
 ## Current scope
 
-This is the initial native client foundation. Live location, participant
-invitations/chat, report moderation, scheduled overdue notifications, and store
-builds still need their Expo/Supabase implementations.
+Report moderation, overdue email delivery, and store builds still need their
+Expo/Supabase implementations. The database scheduler marks journeys overdue
+and queues notification events, but an email provider still needs to be
+connected before trusted contacts receive overdue emails. Live location is
+shared only while Here is open in the foreground; it stops when the user taps
+Stop live location or marks the journey arrived or cancelled.
 The legacy FastAPI app remains in the repository for local web development;
 the mobile client does not call it.

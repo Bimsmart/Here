@@ -5,6 +5,9 @@ __pycache__/
 **/node_modules/
 **/.expo/
 .env
+.supabase-home/
+mobile/.expo-home/
+supabase/.temp/
 data/
 *.log
 Video/

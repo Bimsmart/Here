@@ -6,9 +6,19 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "plugins": [
-      ["expo-location", { "locationWhenInUsePermission": "Allow Here to use your location to set the start of a journey." }]
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Here to use your location to estimate travel time to your destination."
+        }
+      ],
+      "expo-status-bar"
     ],
-    "ios": { "supportsTablet": true },
-    "android": { "package": "app.here.safety" }
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "app.here.safety"
+    }
   }
 }
