@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ActivityIndicator, Alert, Animated, Image, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
+import { VideoView, useVideoPlayer } from 'expo-video'
 import * as Crypto from 'expo-crypto'
 import * as Location from 'expo-location'
 import MapView, { Marker, type Region } from 'react-native-maps'
@@ -23,6 +24,57 @@ const muted = '#78827e'
 const green = '#176b55'
 
 export default function App() {
+  const [introFinished, setIntroFinished] = useState(false)
+
+  return <View style={styles.appRoot}>
+    <AppContent />
+    {!introFinished && <OpeningIntro onFinish={() => setIntroFinished(true)} />}
+  </View>
+}
+
+function OpeningIntro({ onFinish }: { onFinish: () => void }) {
+  const opacity = useRef(new Animated.Value(1)).current
+  const taglineOpacity = useRef(new Animated.Value(0)).current
+  const taglineScale = useRef(new Animated.Value(0.82)).current
+  const finished = useRef(false)
+  const player = useVideoPlayer(require('./assets/here-opening.mp4'), video => {
+    video.muted = true
+    video.loop = false
+    video.play()
+  })
+
+  const finish = useCallback(() => {
+    if (finished.current) return
+    finished.current = true
+    Animated.timing(opacity, { toValue: 0, duration: 420, useNativeDriver: true }).start(onFinish)
+  }, [onFinish, opacity])
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(taglineOpacity, { toValue: 1, duration: 420, delay: 260, useNativeDriver: true }),
+      Animated.spring(taglineScale, { toValue: 1, delay: 260, friction: 5, tension: 110, useNativeDriver: true }),
+    ]).start()
+    const endSubscription = player.addListener('playToEnd', finish)
+    const errorSubscription = player.addListener('statusChange', event => {
+      if (event.status === 'error') finish()
+    })
+    const fallback = setTimeout(finish, 8000)
+    return () => {
+      endSubscription.remove()
+      errorSubscription.remove()
+      clearTimeout(fallback)
+    }
+  }, [finish, player, taglineOpacity, taglineScale])
+
+  return <Animated.View style={[styles.intro, { opacity }]}>
+    <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} surfaceType="textureView" />
+    <Animated.View pointerEvents="none" style={[styles.introTaglineWrap, { opacity: taglineOpacity, transform: [{ scale: taglineScale }] }]}>
+      <Text style={styles.introTagline}>stay connected to every journey</Text>
+    </Animated.View>
+  </Animated.View>
+}
+
+function AppContent() {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [registering, setRegistering] = useState(false)
@@ -498,6 +550,7 @@ function journeyStatusLabel(status: string) {
 }
 
 const styles = StyleSheet.create({
+  appRoot: { flex: 1 }, intro: { ...StyleSheet.absoluteFillObject, zIndex: 10, backgroundColor: '#f5f7f5' }, introTaglineWrap: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 20, paddingTop: 30, paddingBottom: 56, alignItems: 'center', backgroundColor: 'rgba(245,247,245,0.92)' }, introTagline: { color: '#18221f', fontSize: 17, fontWeight: '600', letterSpacing: 0.2, textAlign: 'center' },
   safe: { flex: 1, backgroundColor: '#f5f7f5' }, center: { flex: 1, backgroundColor: '#f5f7f5', justifyContent: 'center', alignItems: 'center', padding: 32 }, page: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 54, maxWidth: 600, width: '100%', alignSelf: 'center' },
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 36 }, brandLogo: { width: 132, height: 34, marginLeft: -3 }, kicker: { color: muted, fontSize: 12, marginTop: 2 }, heading: { marginBottom: 22 }, title: { color: ink, fontSize: 27, fontWeight: '700', letterSpacing: -0.7 }, copy: { color: muted, fontSize: 14, lineHeight: 21, marginTop: 7 },
   authCard: { backgroundColor: 'white', borderRadius: 24, padding: 22, shadowColor: '#25352f', shadowOpacity: 0.07, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 3 }, field: { flex: 1, marginTop: 17 }, label: { fontSize: 12, color: muted, marginBottom: 8, marginLeft: 3 }, input: { minHeight: 50, backgroundColor: '#f4f6f4', borderRadius: 15, paddingHorizontal: 15, color: ink, fontSize: 15 },
