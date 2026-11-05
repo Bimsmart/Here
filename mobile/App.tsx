@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, Animated, Image, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Alert, Animated, KeyboardAvoidingView, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
-import { VideoView, useVideoPlayer } from 'expo-video'
+import { Image as ExpoImage } from 'expo-image'
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import * as Crypto from 'expo-crypto'
 import * as Location from 'expo-location'
 import MapView, { Marker, type Region } from 'react-native-maps'
@@ -26,22 +27,18 @@ const green = '#176b55'
 export default function App() {
   const [introFinished, setIntroFinished] = useState(false)
 
-  return <View style={styles.appRoot}>
-    <AppContent />
+  return <SafeAreaProvider><View style={styles.appRoot}>
+    <AppContent playBrandAnimation={introFinished} />
     {!introFinished && <OpeningIntro onFinish={() => setIntroFinished(true)} />}
-  </View>
+  </View></SafeAreaProvider>
 }
 
 function OpeningIntro({ onFinish }: { onFinish: () => void }) {
   const opacity = useRef(new Animated.Value(1)).current
+  const logoOpacity = useRef(new Animated.Value(0)).current
+  const logoScale = useRef(new Animated.Value(0.72)).current
   const taglineOpacity = useRef(new Animated.Value(0)).current
-  const taglineScale = useRef(new Animated.Value(0.82)).current
   const finished = useRef(false)
-  const player = useVideoPlayer(require('./assets/here-opening.mp4'), video => {
-    video.muted = true
-    video.loop = false
-    video.play()
-  })
 
   const finish = useCallback(() => {
     if (finished.current) return
@@ -51,30 +48,44 @@ function OpeningIntro({ onFinish }: { onFinish: () => void }) {
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(taglineOpacity, { toValue: 1, duration: 420, delay: 260, useNativeDriver: true }),
-      Animated.spring(taglineScale, { toValue: 1, delay: 260, friction: 5, tension: 110, useNativeDriver: true }),
+      Animated.timing(logoOpacity, { toValue: 1, duration: 320, useNativeDriver: true }),
+      Animated.spring(logoScale, { toValue: 1, friction: 4, tension: 95, useNativeDriver: true }),
+      Animated.timing(taglineOpacity, { toValue: 1, duration: 420, delay: 340, useNativeDriver: true }),
     ]).start()
-    const endSubscription = player.addListener('playToEnd', finish)
-    const errorSubscription = player.addListener('statusChange', event => {
-      if (event.status === 'error') finish()
-    })
-    const fallback = setTimeout(finish, 8000)
-    return () => {
-      endSubscription.remove()
-      errorSubscription.remove()
-      clearTimeout(fallback)
-    }
-  }, [finish, player, taglineOpacity, taglineScale])
+    const fallback = setTimeout(finish, 5600)
+    return () => clearTimeout(fallback)
+  }, [finish, logoOpacity, logoScale, taglineOpacity])
 
   return <Animated.View style={[styles.intro, { opacity }]}>
-    <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} surfaceType="textureView" />
-    <Animated.View pointerEvents="none" style={[styles.introTaglineWrap, { opacity: taglineOpacity, transform: [{ scale: taglineScale }] }]}>
-      <Text style={styles.introTagline}>stay connected to every journey</Text>
-    </Animated.View>
+    <View pointerEvents="none" style={styles.introCenter}>
+      <Animated.View style={[styles.introLogo, { opacity: logoOpacity, transform: [{ scale: logoScale }] }]}>
+        <ExpoImage source={require('./assets/here-opening-transparent.png')} style={StyleSheet.absoluteFill} contentFit="contain" autoplay />
+      </Animated.View>
+      <Animated.Text style={[styles.introTagline, { opacity: taglineOpacity }]}>stay connected to every journey</Animated.Text>
+    </View>
   </Animated.View>
 }
 
-function AppContent() {
+function AnimatedBrandMark({ active }: { active: boolean }) {
+  const scale = useRef(new Animated.Value(0.82)).current
+  const opacity = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    if (!active) return
+    const entrance = Animated.parallel([
+      Animated.spring(scale, { toValue: 1, friction: 4, tension: 100, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 350, useNativeDriver: true }),
+    ])
+    entrance.start()
+    return () => entrance.stop()
+  }, [active, opacity, scale])
+
+  return <Animated.View style={[styles.brandAnimation, { opacity, transform: [{ scale }] }]}>
+    <ExpoImage source={require('./assets/here-opening-transparent.png')} style={StyleSheet.absoluteFill} contentFit="contain" autoplay={active} />
+  </Animated.View>
+}
+
+function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [registering, setRegistering] = useState(false)
@@ -435,8 +446,8 @@ function AppContent() {
   return <SafeAreaView style={styles.safe}>
     <StatusBar style="dark" />
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-        <View style={styles.top}><View><Image source={require('./assets/here-logo.png')} style={styles.brandLogo} resizeMode="contain" /><Text style={styles.kicker}>stay connected to every journey</Text></View>{session && <Pressable onPress={() => void signOut()}><Text style={styles.link}>Sign out</Text></Pressable>}</View>
+      <ScrollView contentContainerStyle={[styles.page, !session && styles.authPage]} keyboardShouldPersistTaps="handled">
+        <View style={styles.top}><View><AnimatedBrandMark active={playBrandAnimation} /><Text style={styles.kicker}>stay connected to every journey</Text></View>{session && <Pressable onPress={() => void signOut()}><Text style={styles.link}>Sign out</Text></Pressable>}</View>
         {!session ? <View style={styles.authCard}>
           <Text style={styles.title}>{registering ? 'Create your account' : 'Welcome back'}</Text>
           <Text style={styles.copy}>Plan a journey and let someone you trust know when you expect to arrive.</Text>
@@ -550,9 +561,9 @@ function journeyStatusLabel(status: string) {
 }
 
 const styles = StyleSheet.create({
-  appRoot: { flex: 1 }, intro: { ...StyleSheet.absoluteFillObject, zIndex: 10, backgroundColor: '#f5f7f5' }, introTaglineWrap: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 20, paddingTop: 30, paddingBottom: 56, alignItems: 'center', backgroundColor: 'rgba(245,247,245,0.92)' }, introTagline: { color: '#18221f', fontSize: 17, fontWeight: '600', letterSpacing: 0.2, textAlign: 'center' },
-  safe: { flex: 1, backgroundColor: '#f5f7f5' }, center: { flex: 1, backgroundColor: '#f5f7f5', justifyContent: 'center', alignItems: 'center', padding: 32 }, page: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 54, maxWidth: 600, width: '100%', alignSelf: 'center' },
-  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 36 }, brandLogo: { width: 132, height: 34, marginLeft: -3 }, kicker: { color: muted, fontSize: 12, marginTop: 2 }, heading: { marginBottom: 22 }, title: { color: ink, fontSize: 27, fontWeight: '700', letterSpacing: -0.7 }, copy: { color: muted, fontSize: 14, lineHeight: 21, marginTop: 7 },
+  appRoot: { flex: 1 }, intro: { ...StyleSheet.absoluteFillObject, zIndex: 10, backgroundColor: '#f5f7f5' }, introCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }, introLogo: { width: 320, height: 96 }, introTagline: { color: '#18221f', fontSize: 17, fontWeight: '600', letterSpacing: 0.2, textAlign: 'center', marginTop: 14 },
+  safe: { flex: 1, backgroundColor: '#f5f7f5' }, center: { flex: 1, backgroundColor: '#f5f7f5', justifyContent: 'center', alignItems: 'center', padding: 32 }, page: { flexGrow: 1, paddingHorizontal: 22, paddingTop: 18, paddingBottom: 54, maxWidth: 600, width: '100%', alignSelf: 'center' }, authPage: { justifyContent: 'center', paddingTop: 24, paddingBottom: 24 },
+  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 36 }, brandAnimation: { width: 156, height: 40, marginLeft: -3 }, kicker: { color: muted, fontSize: 12, marginTop: 2 }, heading: { marginBottom: 22 }, title: { color: ink, fontSize: 27, fontWeight: '700', letterSpacing: -0.7 }, copy: { color: muted, fontSize: 14, lineHeight: 21, marginTop: 7 },
   authCard: { backgroundColor: 'white', borderRadius: 24, padding: 22, shadowColor: '#25352f', shadowOpacity: 0.07, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 3 }, field: { flex: 1, marginTop: 17 }, label: { fontSize: 12, color: muted, marginBottom: 8, marginLeft: 3 }, input: { minHeight: 50, backgroundColor: '#f4f6f4', borderRadius: 15, paddingHorizontal: 15, color: ink, fontSize: 15 },
   primary: { minHeight: 52, borderRadius: 17, backgroundColor: green, alignItems: 'center', justifyContent: 'center', marginTop: 21, shadowColor: green, shadowOpacity: 0.17, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 }, primaryText: { color: 'white', fontWeight: '600', fontSize: 15 }, switch: { alignItems: 'center', paddingTop: 19 }, link: { color: green, fontSize: 14, fontWeight: '600' },
   addButton: { backgroundColor: 'white', paddingVertical: 17, borderRadius: 17, alignItems: 'center', marginBottom: 18, shadowColor: '#23352e', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 }, addText: { color: green, fontWeight: '600', fontSize: 15 }, card: { backgroundColor: 'white', borderRadius: 21, padding: 19, marginBottom: 14, shadowColor: '#23352e', shadowOpacity: 0.055, shadowRadius: 15, shadowOffset: { width: 0, height: 5 }, elevation: 2 }, cardHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 11 }, dot: { width: 8, height: 8, borderRadius: 8, backgroundColor: '#54a789', marginRight: 8 }, overdueDot: { backgroundColor: '#c96f49' }, status: { color: green, fontSize: 11, fontWeight: '700', letterSpacing: 0.6 }, overdueStatus: { color: '#a34831' }, destination: { color: ink, fontWeight: '700', fontSize: 19 }, contact: { color: muted, fontSize: 12, marginTop: 14 }, sharedNote: { color: muted, fontSize: 12, marginTop: 14 }, actions: { flexDirection: 'row', gap: 8, marginTop: 18 }, actionButton: { flex: 1, minHeight: 40, paddingHorizontal: 8, borderRadius: 12, backgroundColor: '#f1f6f3', alignItems: 'center', justifyContent: 'center' }, actionText: { color: green, fontWeight: '600', fontSize: 12 }, cancelText: { color: '#a34848', fontWeight: '600', fontSize: 12 }, reportToggle: { marginTop: 16, alignSelf: 'flex-start' }, reportForm: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#edf0ee' }, categoryList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }, categoryChip: { borderRadius: 14, paddingVertical: 8, paddingHorizontal: 11, backgroundColor: '#f1f4f2' }, categoryChipSelected: { backgroundColor: '#dceee7' }, categoryText: { color: muted, fontSize: 12 }, categoryTextSelected: { color: green, fontWeight: '600' }, reportInput: { minHeight: 86, marginTop: 14, padding: 13, borderRadius: 13, backgroundColor: '#f4f6f4', color: ink, fontSize: 14 }, reportNote: { color: muted, fontSize: 11, lineHeight: 16, marginTop: 10 }, reportSubmit: { minHeight: 46, marginTop: 14, borderRadius: 14, backgroundColor: green, alignItems: 'center', justifyContent: 'center' }, section: { color: ink, fontWeight: '600', fontSize: 16, marginBottom: 3 }, row: { flexDirection: 'row', gap: 12 }, mapTools: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }, mapFrame: { height: 250, borderRadius: 19, overflow: 'hidden', marginTop: 10, backgroundColor: '#e8efeb' }, map: { flex: 1 }, coordinates: { color: muted, fontSize: 11, lineHeight: 17, marginTop: 8, marginLeft: 3 }, empty: { alignItems: 'center', backgroundColor: 'white', borderRadius: 22, padding: 30, marginTop: 4 }, emptyIcon: { fontSize: 30, color: '#9bbcaf', marginBottom: 9 }, searchSpinner: { marginTop: 8 }, suggestion: { paddingVertical: 12, paddingHorizontal: 14, backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#edf0ee' }, suggestionTitle: { color: ink, fontWeight: '600', fontSize: 14 }, suggestionDetail: { color: muted, fontSize: 12, marginTop: 3 }, locationHint: { marginTop: 13 }, routeSummary: { color: green, fontSize: 12, lineHeight: 18, marginTop: 11 },

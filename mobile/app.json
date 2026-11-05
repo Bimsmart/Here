@@ -12,7 +12,8 @@
           "locationWhenInUsePermission": "Allow Here to use your location to estimate travel time to your destination."
         }
       ],
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-image"
     ],
     "ios": {
       "supportsTablet": true
