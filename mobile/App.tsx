@@ -28,8 +28,10 @@ export default function App() {
   const [introFinished, setIntroFinished] = useState(false)
 
   return <SafeAreaProvider><View style={styles.appRoot}>
-    <AppContent playBrandAnimation={introFinished} />
-    {!introFinished && <OpeningIntro onFinish={() => setIntroFinished(true)} />}
+    <StatusBar style="dark" />
+    {introFinished
+      ? <AppContent playBrandAnimation />
+      : <OpeningIntro onFinish={() => setIntroFinished(true)} />}
   </View></SafeAreaProvider>
 }
 
@@ -444,7 +446,6 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
   if (!supabase) return <SafeAreaView style={styles.center}><Text style={styles.title}>Connect Supabase</Text><Text style={styles.copy}>Copy mobile/.env.example to mobile/.env and add your project URL and publishable key.</Text></SafeAreaView>
 
   return <SafeAreaView style={styles.safe}>
-    <StatusBar style="dark" />
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={[styles.page, !session && styles.authPage]} keyboardShouldPersistTaps="handled">
         <View style={styles.top}><View><AnimatedBrandMark active={playBrandAnimation} /><Text style={styles.kicker}>stay connected to every journey</Text></View>{session && <Pressable onPress={() => void signOut()}><Text style={styles.link}>Sign out</Text></Pressable>}</View>
