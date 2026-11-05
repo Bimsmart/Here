@@ -312,18 +312,57 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
 
   async function authenticate() {
     if (!supabase) return
+    const email = form.email.trim()
+    const password = form.password
+    if (!email || !password) {
+      Alert.alert('Enter your details', 'Type your email address and password, then try again.')
+      return
+    }
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      Alert.alert('Check your email', 'Enter a complete email address, for example name@example.com.')
+      return
+    }
+    if (registering && !form.name.trim()) {
+      Alert.alert('Enter your name', 'Add your name so your trusted contacts know who shared the journey.')
+      return
+    }
+    if (registering && password.length < 6) {
+      Alert.alert('Password too short', 'Choose a password with at least 6 characters.')
+      return
+    }
+
     setBusy(true)
-    const result = registering
-      ? await supabase.auth.signUp({ email: form.email.trim(), password: form.password, options: { data: { display_name: form.name.trim() } } })
-      : await supabase.auth.signInWithPassword({ email: form.email.trim(), password: form.password })
-    setBusy(false)
-    if (result.error) Alert.alert('Sign in issue', result.error.message)
-    else if (registering && !result.data.session) Alert.alert('Check your email', 'Confirm your email, then sign in to continue.')
-    else if (result.data.session) {
-      const linked = await supabase.functions.invoke('link-legacy-account', { body: { password: form.password } })
-      if (linked.error) Alert.alert('Account linking', linked.error.message)
-      else if (linked.data?.error) Alert.alert('Account linking', linked.data.error)
-      void linkAndLoad()
+    try {
+      const result = registering
+        ? await supabase.auth.signUp({ email, password, options: { data: { display_name: form.name.trim() } } })
+        : await supabase.auth.signInWithPassword({ email, password })
+
+      if (result.error) {
+        const message = result.error.message.toLowerCase()
+        if (message.includes('email address not authorized')) {
+          Alert.alert('Email setup needed', 'Supabase is only allowed to send confirmation emails to project team members right now. Connect an email sender (SMTP) in Supabase so new users can receive their confirmation link.')
+        } else if (message.includes('rate limit') || message.includes('too many requests')) {
+          Alert.alert('Too many attempts', 'Please wait a little while before trying again. A proper email sender in Supabase also raises the small testing email limit.')
+        } else if (message.includes('email not confirmed')) {
+          Alert.alert('Confirm your email first', 'Open the confirmation link in your email, then return here and sign in.')
+        } else {
+          Alert.alert(registering ? 'Could not create account' : 'Could not sign in', result.error.message)
+        }
+      } else if (registering && !result.data.session) {
+        Alert.alert('Check your email', 'We sent you a confirmation link. Open it, then return here and sign in.')
+      } else if (result.data.session) {
+        const linked = await supabase.functions.invoke('link-legacy-account', { body: { password } })
+        if (linked.error) Alert.alert('Account linking', linked.error.message)
+        else if (linked.data?.error) Alert.alert('Account linking', linked.data.error)
+        void linkAndLoad()
+      }
+    } catch (error) {
+      Alert.alert(
+        'Connection problem',
+        error instanceof Error ? `${error.message}\n\nCheck your internet connection and try again.` : 'Could not reach the sign-in service. Check your internet connection and try again.',
+      )
+    } finally {
+      setBusy(false)
     }
   }
 
