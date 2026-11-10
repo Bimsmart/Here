@@ -14,6 +14,7 @@ type PlaceSuggestion = { label: string; latitude: number; longitude: number }
 type Incident = { id: string; title: string; description: string; category: string; latitude: number; longitude: number; received_at: string; verification_status: string }
 type JourneyMessage = { id: string; journey_id: string; user_id: string; body: string; created_at: string }
 type SharedLocation = { latitude: number; longitude: number; accuracy: number | null; updated_at: string }
+type QuickAction = 'chat' | 'live' | 'report' | 'share'
 const incidentTypes = [
   { key: 'road_blockage', label: 'Road blocked' }, { key: 'flooding', label: 'Flooding' },
   { key: 'fire', label: 'Fire' }, { key: 'robbery_report', label: 'Robbery' },
@@ -93,6 +94,8 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
   const [registering, setRegistering] = useState(false)
   const [busy, setBusy] = useState(false)
   const [journeys, setJourneys] = useState<Journey[]>([])
+  const [quickMenuOpen, setQuickMenuOpen] = useState(false)
+  const [quickAction, setQuickAction] = useState<QuickAction | null>(null)
   const [form, setForm] = useState({ email: '', password: '', name: '' })
   const [showJourneyForm, setShowJourneyForm] = useState(false)
   const [journey, setJourney] = useState({ destination: '', latitude: '', longitude: '', eta: '', contact: '', contactEmail: '' })
@@ -117,6 +120,8 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
   const [chatMessages, setChatMessages] = useState<JourneyMessage[]>([])
   const [chatDraft, setChatDraft] = useState('')
   const [sendingMessage, setSendingMessage] = useState(false)
+  const scrollRef = useRef<any>(null)
+  const journeyCardOffsets = useRef<Record<string, number>>({})
   const locationSubscription = useRef<Location.LocationSubscription | null>(null)
 
   useEffect(() => {
@@ -240,14 +245,15 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
   }
 
   async function startLocationSharing(item: Journey) {
-    if (!supabase || !appUserId) { Alert.alert('Profile not ready', 'Please sign out and back in, then try again.'); return }
+    const client = supabase
+    if (!client || !appUserId) { Alert.alert('Profile not ready', 'Please sign out and back in, then try again.'); return }
     if (locationSubscription.current) await stopLocationSharing(trackingJourneyId ?? undefined)
     try {
       const permission = await Location.requestForegroundPermissionsAsync()
       if (!permission.granted) { Alert.alert('Location permission needed', 'Allow location access to share your live position during this journey.'); return }
       const saveLocation = async (point: Location.LocationObject) => {
         const now = new Date().toISOString()
-        const { error } = await supabase.from('journey_member_locations').upsert({
+        const { error } = await client.from('journey_member_locations').upsert({
           journey_id: item.id, user_id: appUserId, latitude: point.coords.latitude,
           longitude: point.coords.longitude, accuracy: point.coords.accuracy, updated_at: now,
         }, { onConflict: 'journey_id,user_id' })
@@ -457,6 +463,38 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
     }
   }
 
+  function journeysForQuickAction(action: QuickAction) {
+    if (action === 'chat') return journeys
+    const activeJourneys = journeys.filter(item => ['ACTIVE', 'OVERDUE_PENDING', 'OVERDUE_NOTIFIED'].includes(item.status))
+    return action === 'report' ? activeJourneys : activeJourneys.filter(item => item.owner_user_id === appUserId)
+  }
+
+  function runQuickAction(item: Journey) {
+    if (!quickAction) return
+    const action = quickAction
+    setQuickMenuOpen(false)
+    setQuickAction(null)
+    if (action === 'chat') {
+      setReportingJourneyId(null)
+      setOpenChatJourneyId(item.id)
+    } else if (action === 'report') {
+      setOpenChatJourneyId(null)
+      setReportDescription('')
+      setReportingJourneyId(item.id)
+    } else if (action === 'live') {
+      setOpenChatJourneyId(null)
+      setReportingJourneyId(null)
+      if (trackingJourneyId === item.id) void stopLocationSharing(item.id)
+      else void startLocationSharing(item)
+    } else {
+      void inviteTrustedContact(item)
+    }
+    setTimeout(() => {
+      const top = journeyCardOffsets.current[item.id]
+      if (top !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, top - 14), animated: true })
+    }, 220)
+  }
+
   async function useCurrentLocation() {
     try {
       const permission = await Location.requestForegroundPermissionsAsync()
@@ -486,8 +524,30 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
 
   return <SafeAreaView style={styles.safe}>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={[styles.page, !session && styles.authPage]} keyboardShouldPersistTaps="handled">
-        <View style={styles.top}><View><AnimatedBrandMark active={playBrandAnimation} /><Text style={styles.kicker}>stay connected to every journey</Text></View>{session && <Pressable onPress={() => void signOut()}><Text style={styles.link}>Sign out</Text></Pressable>}</View>
+      <ScrollView ref={scrollRef} contentContainerStyle={[styles.page, !session && styles.authPage]} keyboardShouldPersistTaps="handled">
+        <View style={styles.top}>
+          <View><AnimatedBrandMark active={playBrandAnimation} /><Text style={styles.kicker}>stay connected to every journey</Text></View>
+          {session && <View style={styles.headerActions}>
+            <Pressable onPress={() => void signOut()}><Text style={styles.link}>Sign out</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={quickMenuOpen ? 'Close quick actions' : 'Open quick actions'} onPress={() => { setQuickMenuOpen(!quickMenuOpen); setQuickAction(null) }} style={styles.menuButton}>
+              <Text style={styles.menuButtonText}>{quickMenuOpen ? '×' : '☰'}</Text>
+            </Pressable>
+          </View>}
+        </View>
+        {session && quickMenuOpen && !showJourneyForm && <View style={styles.quickMenu}>
+          <Text style={styles.section}>{quickAction ? 'Choose a journey' : 'More options'}</Text>
+          {!quickAction ? <>
+            <Pressable onPress={() => setQuickAction('chat')} style={styles.quickMenuRow}><Text style={styles.quickMenuTitle}>Chat</Text><Text style={styles.quickMenuDetail}>Open a journey conversation</Text></Pressable>
+            <Pressable onPress={() => setQuickAction('live')} style={styles.quickMenuRow}><Text style={styles.quickMenuTitle}>{trackingJourneyId ? 'Manage live location' : 'Share live location'}</Text><Text style={styles.quickMenuDetail}>Choose one of your active journeys</Text></Pressable>
+            <Pressable onPress={() => setQuickAction('report')} style={styles.quickMenuRow}><Text style={styles.quickMenuTitle}>Report an incident</Text><Text style={styles.quickMenuDetail}>Add a report to an active journey</Text></Pressable>
+            <Pressable onPress={() => setQuickAction('share')} style={styles.quickMenuRow}><Text style={styles.quickMenuTitle}>Share a journey</Text><Text style={styles.quickMenuDetail}>Invite your trusted contact</Text></Pressable>
+          </> : <>
+            {journeysForQuickAction(quickAction).length === 0
+              ? <Text style={styles.quickMenuDetail}>There isn’t a journey available for this option yet.</Text>
+              : journeysForQuickAction(quickAction).map(item => <Pressable key={item.id} onPress={() => runQuickAction(item)} style={styles.quickMenuRow}><Text style={styles.quickMenuTitle}>{item.destination_label}</Text><Text style={styles.quickMenuDetail}>{quickAction === 'live' && trackingJourneyId === item.id ? 'Sharing live location now' : journeyStatusLabel(item.status)}</Text></Pressable>)}
+            <Pressable onPress={() => setQuickAction(null)} style={styles.quickMenuBack}><Text style={styles.link}>Back to options</Text></Pressable>
+          </>}
+        </View>}
         {!session ? <View style={styles.authCard}>
           <Text style={styles.title}>{registering ? 'Create your account' : 'Welcome back'}</Text>
           <Text style={styles.copy}>Plan a journey and let someone you trust know when you expect to arrive.</Text>
@@ -496,19 +556,10 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
           <Field label="Password" value={form.password} onChangeText={v => setForm({ ...form, password: v })} secureTextEntry />
           <Primary title={registering ? 'Create account' : 'Continue'} busy={busy} onPress={authenticate} />
           <Pressable onPress={() => setRegistering(!registering)} style={styles.switch}><Text style={styles.link}>{registering ? 'I already have an account' : 'Create an account'}</Text></Pressable>
-        </View> : <>
-          <View style={styles.heading}><Text style={styles.title}>Your journeys</Text><Text style={styles.copy}>A simple check-in plan for the people who care.</Text></View>
-          <View style={styles.incidentMapCard}>
-            <View style={styles.incidentMapHeader}><View><Text style={styles.section}>Community reports</Text><Text style={styles.copy}>{incidents.length ? `${incidents.length} recent report${incidents.length === 1 ? '' : 's'} on the map` : 'No recent reports yet'}</Text></View><Pressable onPress={() => void useCurrentLocation()}><Text style={styles.link}>Center on me</Text></Pressable></View>
-            {incidentLoadError ? <Text style={styles.reportNote}>{incidentLoadError}</Text> : <View style={styles.incidentMapFrame}><MapView style={styles.map} region={incidentMapRegion} onRegionChangeComplete={setIncidentMapRegion}>
-              {incidents.map(report => <Marker key={report.id} coordinate={{ latitude: report.latitude, longitude: report.longitude }} title={report.title} description={`${report.verification_status.replaceAll('_', ' ')} · ${report.description}`} pinColor={report.verification_status === 'confirmed' ? '#278660' : '#ce6d54'} />)}
-              {origin && <Marker coordinate={origin} title="Your current location" pinColor={green} />}
-            </MapView></View>}
-            <Text style={styles.reportNote}>Community reports are unverified unless marked confirmed. For emergencies, contact local emergency services.</Text>
-            {!!incidentLoadError && <Pressable onPress={() => void loadIncidentReports()} style={styles.retryReports}><Text style={styles.link}>Try again</Text></Pressable>}
-          </View>
-          <Pressable onPress={() => { const opening = !showJourneyForm; setShowJourneyForm(opening); if (opening && !origin) void useCurrentLocation() }} style={styles.addButton}><Text style={styles.addText}>{showJourneyForm ? 'Close' : '+  Plan a journey'}</Text></Pressable>
-          {showJourneyForm && <View style={styles.card}>
+        </View> : showJourneyForm ? <>
+          <Pressable onPress={() => { setShowJourneyForm(false); setQuickMenuOpen(false) }} style={styles.backButton}><Text style={styles.link}>‹  Your journeys</Text></Pressable>
+          <View style={styles.heading}><Text style={styles.title}>Plan a journey</Text><Text style={styles.copy}>Choose where you’re going and who should know when you arrive.</Text></View>
+          <View style={styles.card}>
             <Text style={styles.section}>Journey details</Text>
             <Field label="Type a destination" value={journey.destination} onChangeText={v => setJourney(current => ({ ...current, destination: v, latitude: '', longitude: '', eta: '' }))} autoCapitalize="words" />
             {searchingPlaces && <ActivityIndicator style={styles.searchSpinner} color={green} />}
@@ -526,13 +577,26 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
             <Field label="Contact name" value={journey.contact} onChangeText={v => setJourney({ ...journey, contact: v })} />
             <Field label="Contact email" value={journey.contactEmail} onChangeText={v => setJourney({ ...journey, contactEmail: v })} keyboardType="email-address" autoCapitalize="none" />
             <Primary title="Save journey" busy={busy} onPress={createJourney} />
-          </View>}
+          </View>
+        </> : <>
+          <View style={styles.heading}><Text style={styles.title}>Plan your journey</Text><Text style={styles.copy}>Let someone you trust know when you expect to arrive.</Text></View>
+          <Pressable onPress={() => { setShowJourneyForm(true); setQuickMenuOpen(false); if (!origin) void useCurrentLocation() }} style={styles.addButton}><Text style={styles.addText}>＋  Plan a journey</Text></Pressable>
+          <View style={styles.incidentMapCard}>
+            <View style={styles.incidentMapHeader}><View><Text style={styles.section}>Community reports</Text><Text style={styles.copy}>{incidents.length ? `${incidents.length} recent report${incidents.length === 1 ? '' : 's'} on the map` : 'No recent reports yet'}</Text></View><Pressable onPress={() => void useCurrentLocation()}><Text style={styles.link}>Center on me</Text></Pressable></View>
+            {incidentLoadError ? <Text style={styles.reportNote}>{incidentLoadError}</Text> : <View style={styles.incidentMapFrame}><MapView style={styles.map} region={incidentMapRegion} onRegionChangeComplete={setIncidentMapRegion}>
+              {incidents.map(report => <Marker key={report.id} coordinate={{ latitude: report.latitude, longitude: report.longitude }} title={report.title} description={`${report.verification_status.replaceAll('_', ' ')} · ${report.description}`} pinColor={report.verification_status === 'confirmed' ? '#278660' : '#ce6d54'} />)}
+              {origin && <Marker coordinate={origin} title="Your current location" pinColor={green} />}
+            </MapView></View>}
+            <Text style={styles.reportNote}>Community reports are unverified unless marked confirmed. For emergencies, contact local emergency services.</Text>
+            {!!incidentLoadError && <Pressable onPress={() => void loadIncidentReports()} style={styles.retryReports}><Text style={styles.link}>Try again</Text></Pressable>}
+          </View>
+          <View style={styles.heading}><Text style={styles.title}>Your journeys</Text><Text style={styles.copy}>Your active plans and shared trips.</Text></View>
           {journeys.length === 0 ? <View style={styles.empty}><Text style={styles.emptyIcon}>⌁</Text><Text style={styles.section}>No journeys yet</Text><Text style={styles.copy}>Your plans will appear here.</Text></View> : journeys.map(item => {
             const active = ['ACTIVE', 'OVERDUE_PENDING', 'OVERDUE_NOTIFIED'].includes(item.status)
             const isOwner = item.owner_user_id === appUserId
             const liveLocation = locationsByJourney[item.id]
             const locationIsFresh = liveLocation && Date.now() - new Date(liveLocation.updated_at).getTime() < 120000
-            return <View style={styles.card} key={item.id}>
+            return <View style={styles.card} key={item.id} onLayout={event => { journeyCardOffsets.current[item.id] = event.nativeEvent.layout.y }}>
               <View style={styles.cardHead}><View style={[styles.dot, item.status === 'OVERDUE_PENDING' && styles.overdueDot]} /><Text style={[styles.status, item.status === 'OVERDUE_PENDING' && styles.overdueStatus]}>{journeyStatusLabel(item.status)}</Text></View>
               <Text style={styles.destination}>{item.destination_label}</Text>
               <Text style={styles.copy}>Arrive by {new Date(item.eta).toLocaleString()}</Text>
@@ -542,7 +606,6 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
                 <Pressable disabled={busy} onPress={() => void updateJourney(item, 'extend')} style={styles.actionButton}><Text style={styles.actionText}>+30 min</Text></Pressable>
                 <Pressable disabled={busy} onPress={() => confirmCancel(item)} style={styles.actionButton}><Text style={styles.cancelText}>Cancel</Text></Pressable>
               </View>}
-              {active && isOwner && <Pressable onPress={() => trackingJourneyId === item.id ? void stopLocationSharing(item.id) : void startLocationSharing(item)} style={styles.reportToggle}><Text style={styles.link}>{trackingJourneyId === item.id ? 'Stop live location' : 'Share live location'}</Text></Pressable>}
               {liveLocation && <View style={styles.liveLocationPanel}>
                 <Text style={styles.liveLocationLabel}>{locationIsFresh ? 'Live location' : 'Last shared location'} · {new Date(liveLocation.updated_at).toLocaleTimeString()}</Text>
                 <View style={styles.liveMapFrame}><MapView style={styles.map} initialRegion={{ latitude: liveLocation.latitude, longitude: liveLocation.longitude, latitudeDelta: 0.025, longitudeDelta: 0.025 }}>
@@ -550,14 +613,11 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
                 </MapView></View>
                 {isOwner && trackingJourneyId === item.id && <Text style={styles.reportNote}>Here shares your position while this screen is open. Stop sharing any time.</Text>}
               </View>}
-              {active && isOwner && <Pressable disabled={invitingJourneyId === item.id} onPress={() => void inviteTrustedContact(item)} style={styles.reportToggle}>{invitingJourneyId === item.id ? <ActivityIndicator color={green} /> : <Text style={styles.link}>Share with {item.contact_name}</Text>}</Pressable>}
               {active && !isOwner && <Text style={styles.sharedNote}>You can view this shared journey.</Text>}
-              <Pressable onPress={() => setOpenChatJourneyId(openChatJourneyId === item.id ? null : item.id)} style={styles.reportToggle}><Text style={styles.link}>{openChatJourneyId === item.id ? 'Close chat' : 'Chat'}</Text></Pressable>
               {openChatJourneyId === item.id && <View style={styles.chatPanel}>
                 {chatMessages.length === 0 ? <Text style={styles.reportNote}>No messages yet. Say hello.</Text> : chatMessages.map(message => <View key={message.id} style={styles.chatMessage}><Text style={styles.chatAuthor}>{message.user_id === appUserId ? 'You' : 'Contact'} · {new Date(message.created_at).toLocaleTimeString()}</Text><Text style={styles.chatBody}>{message.body}</Text></View>)}
                 <View style={styles.chatComposer}><TextInput value={chatDraft} onChangeText={setChatDraft} style={styles.chatInput} placeholder="Write a message" placeholderTextColor="#a6afab" maxLength={1000} returnKeyType="send" onSubmitEditing={() => void sendChatMessage(item.id)} /><Pressable disabled={sendingMessage || !chatDraft.trim()} onPress={() => void sendChatMessage(item.id)} style={styles.chatSend}><Text style={styles.chatSendText}>{sendingMessage ? '…' : 'Send'}</Text></Pressable></View>
               </View>}
-              {active && <Pressable onPress={() => { setReportingJourneyId(reportingJourneyId === item.id ? null : item.id); setReportDescription('') }} style={styles.reportToggle}><Text style={styles.link}>{reportingJourneyId === item.id ? 'Close report' : 'Report an incident'}</Text></Pressable>}
               {reportingJourneyId === item.id && <View style={styles.reportForm}>
                 <Text style={styles.section}>What is happening?</Text>
                 <View style={styles.categoryList}>{incidentTypes.map(type => <Pressable key={type.key} onPress={() => setReportCategory(type.key)} style={[styles.categoryChip, reportCategory === type.key && styles.categoryChipSelected]}><Text style={[styles.categoryText, reportCategory === type.key && styles.categoryTextSelected]}>{type.label}</Text></Pressable>)}</View>
@@ -601,9 +661,9 @@ function journeyStatusLabel(status: string) {
 }
 
 const styles = StyleSheet.create({
-  appRoot: { flex: 1 }, intro: { ...StyleSheet.absoluteFillObject, zIndex: 10, backgroundColor: '#f5f7f5' }, introCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }, introLogo: { width: 320, height: 96 }, introTagline: { color: '#18221f', fontSize: 17, fontWeight: '600', letterSpacing: 0.2, textAlign: 'center', marginTop: 14 },
+  appRoot: { flex: 1 }, intro: { ...StyleSheet.absoluteFill, zIndex: 10, backgroundColor: '#f5f7f5' }, introCenter: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }, introLogo: { width: 320, height: 96 }, introTagline: { color: '#18221f', fontSize: 17, fontWeight: '600', letterSpacing: 0.2, textAlign: 'center', marginTop: 14 },
   safe: { flex: 1, backgroundColor: '#f5f7f5' }, center: { flex: 1, backgroundColor: '#f5f7f5', justifyContent: 'center', alignItems: 'center', padding: 32 }, page: { flexGrow: 1, paddingHorizontal: 22, paddingTop: 18, paddingBottom: 54, maxWidth: 600, width: '100%', alignSelf: 'center' }, authPage: { justifyContent: 'center', paddingTop: 24, paddingBottom: 24 },
-  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 36 }, brandAnimation: { width: 156, height: 40, marginLeft: -3 }, kicker: { color: muted, fontSize: 12, marginTop: 2 }, heading: { marginBottom: 22 }, title: { color: ink, fontSize: 27, fontWeight: '700', letterSpacing: -0.7 }, copy: { color: muted, fontSize: 14, lineHeight: 21, marginTop: 7 },
+  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }, headerActions: { flexDirection: 'row', alignItems: 'center', gap: 14 }, menuButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', shadowColor: '#23352e', shadowOpacity: 0.08, shadowRadius: 8, elevation: 2 }, menuButtonText: { color: green, fontSize: 22, fontWeight: '600', lineHeight: 26 }, quickMenu: { backgroundColor: 'white', borderRadius: 19, padding: 16, marginBottom: 20, shadowColor: '#23352e', shadowOpacity: 0.07, shadowRadius: 12, elevation: 2 }, quickMenuRow: { backgroundColor: '#f4f6f4', borderRadius: 13, padding: 13, marginTop: 9 }, quickMenuTitle: { color: ink, fontWeight: '600', fontSize: 14 }, quickMenuDetail: { color: muted, fontSize: 12, lineHeight: 17, marginTop: 4 }, quickMenuBack: { alignSelf: 'flex-start', marginTop: 14 }, backButton: { alignSelf: 'flex-start', paddingVertical: 7, marginBottom: 10 }, brandAnimation: { width: 156, height: 40, marginLeft: -3 }, kicker: { color: muted, fontSize: 12, marginTop: 2 }, heading: { marginBottom: 22 }, title: { color: ink, fontSize: 27, fontWeight: '700', letterSpacing: -0.7 }, copy: { color: muted, fontSize: 14, lineHeight: 21, marginTop: 7 },
   authCard: { backgroundColor: 'white', borderRadius: 24, padding: 22, shadowColor: '#25352f', shadowOpacity: 0.07, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 3 }, field: { flex: 1, marginTop: 17 }, label: { fontSize: 12, color: muted, marginBottom: 8, marginLeft: 3 }, input: { minHeight: 50, backgroundColor: '#f4f6f4', borderRadius: 15, paddingHorizontal: 15, color: ink, fontSize: 15 },
   primary: { minHeight: 52, borderRadius: 17, backgroundColor: green, alignItems: 'center', justifyContent: 'center', marginTop: 21, shadowColor: green, shadowOpacity: 0.17, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 }, primaryText: { color: 'white', fontWeight: '600', fontSize: 15 }, switch: { alignItems: 'center', paddingTop: 19 }, link: { color: green, fontSize: 14, fontWeight: '600' },
   addButton: { backgroundColor: 'white', paddingVertical: 17, borderRadius: 17, alignItems: 'center', marginBottom: 18, shadowColor: '#23352e', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 }, addText: { color: green, fontWeight: '600', fontSize: 15 }, card: { backgroundColor: 'white', borderRadius: 21, padding: 19, marginBottom: 14, shadowColor: '#23352e', shadowOpacity: 0.055, shadowRadius: 15, shadowOffset: { width: 0, height: 5 }, elevation: 2 }, cardHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 11 }, dot: { width: 8, height: 8, borderRadius: 8, backgroundColor: '#54a789', marginRight: 8 }, overdueDot: { backgroundColor: '#c96f49' }, status: { color: green, fontSize: 11, fontWeight: '700', letterSpacing: 0.6 }, overdueStatus: { color: '#a34831' }, destination: { color: ink, fontWeight: '700', fontSize: 19 }, contact: { color: muted, fontSize: 12, marginTop: 14 }, sharedNote: { color: muted, fontSize: 12, marginTop: 14 }, actions: { flexDirection: 'row', gap: 8, marginTop: 18 }, actionButton: { flex: 1, minHeight: 40, paddingHorizontal: 8, borderRadius: 12, backgroundColor: '#f1f6f3', alignItems: 'center', justifyContent: 'center' }, actionText: { color: green, fontWeight: '600', fontSize: 12 }, cancelText: { color: '#a34848', fontWeight: '600', fontSize: 12 }, reportToggle: { marginTop: 16, alignSelf: 'flex-start' }, reportForm: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#edf0ee' }, categoryList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }, categoryChip: { borderRadius: 14, paddingVertical: 8, paddingHorizontal: 11, backgroundColor: '#f1f4f2' }, categoryChipSelected: { backgroundColor: '#dceee7' }, categoryText: { color: muted, fontSize: 12 }, categoryTextSelected: { color: green, fontWeight: '600' }, reportInput: { minHeight: 86, marginTop: 14, padding: 13, borderRadius: 13, backgroundColor: '#f4f6f4', color: ink, fontSize: 14 }, reportNote: { color: muted, fontSize: 11, lineHeight: 16, marginTop: 10 }, reportSubmit: { minHeight: 46, marginTop: 14, borderRadius: 14, backgroundColor: green, alignItems: 'center', justifyContent: 'center' }, section: { color: ink, fontWeight: '600', fontSize: 16, marginBottom: 3 }, row: { flexDirection: 'row', gap: 12 }, mapTools: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }, mapFrame: { height: 250, borderRadius: 19, overflow: 'hidden', marginTop: 10, backgroundColor: '#e8efeb' }, map: { flex: 1 }, coordinates: { color: muted, fontSize: 11, lineHeight: 17, marginTop: 8, marginLeft: 3 }, empty: { alignItems: 'center', backgroundColor: 'white', borderRadius: 22, padding: 30, marginTop: 4 }, emptyIcon: { fontSize: 30, color: '#9bbcaf', marginBottom: 9 }, searchSpinner: { marginTop: 8 }, suggestion: { paddingVertical: 12, paddingHorizontal: 14, backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#edf0ee' }, suggestionTitle: { color: ink, fontWeight: '600', fontSize: 14 }, suggestionDetail: { color: muted, fontSize: 12, marginTop: 3 }, locationHint: { marginTop: 13 }, routeSummary: { color: green, fontSize: 12, lineHeight: 18, marginTop: 11 },
