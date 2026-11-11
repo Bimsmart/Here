@@ -15,6 +15,7 @@ type Incident = { id: string; title: string; description: string; category: stri
 type JourneyMessage = { id: string; journey_id: string; user_id: string; body: string; created_at: string }
 type SharedLocation = { latitude: number; longitude: number; accuracy: number | null; updated_at: string }
 type QuickAction = 'chat' | 'live' | 'report' | 'share'
+type AppTab = 'home' | 'journeys' | 'map' | 'chat'
 const incidentTypes = [
   { key: 'road_blockage', label: 'Road blocked' }, { key: 'flooding', label: 'Flooding' },
   { key: 'fire', label: 'Fire' }, { key: 'robbery_report', label: 'Robbery' },
@@ -94,8 +95,10 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
   const [registering, setRegistering] = useState(false)
   const [busy, setBusy] = useState(false)
   const [journeys, setJourneys] = useState<Journey[]>([])
+  const [activeTab, setActiveTab] = useState<AppTab>('home')
   const [quickMenuOpen, setQuickMenuOpen] = useState(false)
   const [quickAction, setQuickAction] = useState<QuickAction | null>(null)
+  const [journeyMenuOpenId, setJourneyMenuOpenId] = useState<string | null>(null)
   const [form, setForm] = useState({ email: '', password: '', name: '' })
   const [showJourneyForm, setShowJourneyForm] = useState(false)
   const [journey, setJourney] = useState({ destination: '', latitude: '', longitude: '', eta: '', contact: '', contactEmail: '' })
@@ -393,7 +396,7 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
     })
     setBusy(false)
     if (created.error) Alert.alert('Could not create journey', created.error.message)
-    else { setShowJourneyForm(false); setJourney({ destination: '', latitude: '', longitude: '', eta: '', contact: '', contactEmail: '' }); setOrigin(null); void linkAndLoad() }
+    else { setShowJourneyForm(false); setActiveTab('journeys'); setJourney({ destination: '', latitude: '', longitude: '', eta: '', contact: '', contactEmail: '' }); setOrigin(null); void linkAndLoad() }
   }
 
   async function updateJourney(item: Journey, action: 'arrive' | 'extend' | 'cancel') {
@@ -420,6 +423,10 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
   async function signOut() {
     if (trackingJourneyId) await stopLocationSharing(trackingJourneyId)
     await supabase?.auth.signOut()
+    setActiveTab('home')
+    setShowJourneyForm(false)
+    setQuickMenuOpen(false)
+    setJourneyMenuOpenId(null)
   }
 
   function confirmCancel(item: Journey) {
@@ -477,22 +484,129 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
     if (action === 'chat') {
       setReportingJourneyId(null)
       setOpenChatJourneyId(item.id)
+      setActiveTab('chat')
     } else if (action === 'report') {
       setOpenChatJourneyId(null)
       setReportDescription('')
       setReportingJourneyId(item.id)
+      setActiveTab('journeys')
     } else if (action === 'live') {
       setOpenChatJourneyId(null)
       setReportingJourneyId(null)
+      setActiveTab('journeys')
       if (trackingJourneyId === item.id) void stopLocationSharing(item.id)
       else void startLocationSharing(item)
     } else {
       void inviteTrustedContact(item)
     }
-    setTimeout(() => {
-      const top = journeyCardOffsets.current[item.id]
-      if (top !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, top - 14), animated: true })
-    }, 220)
+    if (action === 'report' || action === 'live') {
+      setTimeout(() => {
+        const top = journeyCardOffsets.current[item.id]
+        if (top !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, top - 14), animated: true })
+      }, 220)
+    }
+  }
+
+  function openQuickAction(action: QuickAction) {
+    setQuickAction(action)
+    setQuickMenuOpen(true)
+    setJourneyMenuOpenId(null)
+  }
+
+  function runJourneyMenuAction(action: QuickAction, item: Journey) {
+    setJourneyMenuOpenId(null)
+    if (action === 'chat') {
+      setReportingJourneyId(null)
+      setOpenChatJourneyId(item.id)
+      setActiveTab('chat')
+    } else if (action === 'report') {
+      setOpenChatJourneyId(null)
+      setReportDescription('')
+      setReportingJourneyId(item.id)
+      setActiveTab('journeys')
+    } else if (action === 'live') {
+      setOpenChatJourneyId(null)
+      setReportingJourneyId(null)
+      setActiveTab('journeys')
+      if (trackingJourneyId === item.id) void stopLocationSharing(item.id)
+      else void startLocationSharing(item)
+    } else {
+      void inviteTrustedContact(item)
+    }
+    if (action === 'report' || action === 'live') {
+      setTimeout(() => {
+        const top = journeyCardOffsets.current[item.id]
+        if (top !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, top - 14), animated: true })
+      }, 220)
+    }
+  }
+
+  function renderJourneyMenu(item: Journey, active: boolean, isOwner: boolean) {
+    return <>
+      <View style={styles.cardHeadRow}>
+        <View style={styles.cardHead}><View style={[styles.dot, item.status === 'OVERDUE_PENDING' && styles.overdueDot]} /><Text style={[styles.status, item.status === 'OVERDUE_PENDING' && styles.overdueStatus]}>{journeyStatusLabel(item.status)}</Text></View>
+        <Pressable accessibilityRole="button" accessibilityLabel={`More options for ${item.destination_label}`} onPress={() => setJourneyMenuOpenId(journeyMenuOpenId === item.id ? null : item.id)} style={styles.cardMoreButton}><Text style={styles.cardMoreText}>⋯</Text></Pressable>
+      </View>
+      {journeyMenuOpenId === item.id && <View style={styles.cardMoreMenu}>
+        <Pressable onPress={() => runJourneyMenuAction('chat', item)} style={styles.cardMoreRow}><Text style={styles.quickMenuTitle}>Open chat</Text></Pressable>
+        {active && <Pressable onPress={() => runJourneyMenuAction('report', item)} style={styles.cardMoreRow}><Text style={styles.quickMenuTitle}>Report an incident</Text></Pressable>}
+        {active && isOwner && <Pressable onPress={() => runJourneyMenuAction('live', item)} style={styles.cardMoreRow}><Text style={styles.quickMenuTitle}>{trackingJourneyId === item.id ? 'Stop live location' : 'Share live location'}</Text></Pressable>}
+        {active && isOwner && <Pressable disabled={invitingJourneyId === item.id} onPress={() => runJourneyMenuAction('share', item)} style={styles.cardMoreRow}>{invitingJourneyId === item.id ? <ActivityIndicator color={green} /> : <Text style={styles.quickMenuTitle}>Share journey</Text>}</Pressable>}
+        {active && isOwner && <Pressable onPress={() => { setJourneyMenuOpenId(null); confirmCancel(item) }} style={styles.cardMoreRow}><Text style={styles.cancelText}>Cancel journey</Text></Pressable>}
+      </View>}
+    </>
+  }
+
+  function renderCommunityMap(compact = false) {
+    return <View style={styles.incidentMapCard}>
+      <View style={styles.incidentMapHeader}><View><Text style={styles.section}>Community reports</Text><Text style={styles.copy}>{incidents.length ? `${incidents.length} recent report${incidents.length === 1 ? '' : 's'}` : 'No recent reports yet'}</Text></View><Pressable onPress={() => void useCurrentLocation()}><Text style={styles.link}>Center on me</Text></Pressable></View>
+      {incidentLoadError ? <Text style={styles.reportNote}>{incidentLoadError}</Text> : <View style={[styles.incidentMapFrame, compact && styles.homeMapFrame]}><MapView style={styles.map} region={incidentMapRegion} onRegionChangeComplete={setIncidentMapRegion}>
+        {incidents.map(report => <Marker key={report.id} coordinate={{ latitude: report.latitude, longitude: report.longitude }} title={report.title} description={`${report.verification_status.replaceAll('_', ' ')} · ${report.description}`} pinColor={report.verification_status === 'confirmed' ? '#278660' : '#ce6d54'} />)}
+        {origin && <Marker coordinate={origin} title="Your current location" pinColor={green} />}
+      </MapView></View>}
+      {!compact && <Text style={styles.reportNote}>Community reports are unverified unless marked confirmed. For emergencies, contact local emergency services.</Text>}
+      {!!incidentLoadError && <Pressable onPress={() => void loadIncidentReports()} style={styles.retryReports}><Text style={styles.link}>Try again</Text></Pressable>}
+      {compact && <Pressable onPress={() => setActiveTab('map')} style={styles.mapOpenButton}><Text style={styles.link}>Open community map  →</Text></Pressable>}
+    </View>
+  }
+
+  function renderJourneyCard(item: Journey, compact = false) {
+    const active = ['ACTIVE', 'OVERDUE_PENDING', 'OVERDUE_NOTIFIED'].includes(item.status)
+    const isOwner = item.owner_user_id === appUserId
+    const liveLocation = locationsByJourney[item.id]
+    const locationIsFresh = liveLocation && Date.now() - new Date(liveLocation.updated_at).getTime() < 120000
+    return <View style={styles.card} key={item.id} onLayout={event => { journeyCardOffsets.current[item.id] = event.nativeEvent.layout.y }}>
+      {renderJourneyMenu(item, active, isOwner)}
+      <Text style={styles.destination}>{item.destination_label}</Text>
+      <Text style={styles.copy}>Arrive by {new Date(item.eta).toLocaleString()}</Text>
+      {!compact && <Text style={styles.contact}>Shared with {item.contact_name}</Text>}
+      {active && isOwner && <View style={styles.actions}>
+        <Pressable disabled={busy} onPress={() => void updateJourney(item, 'arrive')} style={styles.actionButton}><Text style={styles.actionText}>I arrived</Text></Pressable>
+        <Pressable disabled={busy} onPress={() => void updateJourney(item, 'extend')} style={styles.actionButton}><Text style={styles.actionText}>+30 min</Text></Pressable>
+      </View>}
+      {liveLocation && <View style={styles.liveLocationPanel}>
+        <Text style={styles.liveLocationLabel}>{locationIsFresh ? 'Live location' : 'Last shared location'} · {new Date(liveLocation.updated_at).toLocaleTimeString()}</Text>
+        <View style={styles.liveMapFrame}><MapView style={styles.map} initialRegion={{ latitude: liveLocation.latitude, longitude: liveLocation.longitude, latitudeDelta: 0.025, longitudeDelta: 0.025 }}>
+          <Marker coordinate={{ latitude: liveLocation.latitude, longitude: liveLocation.longitude }} title={locationIsFresh ? 'Shared live location' : 'Last shared location'} description={new Date(liveLocation.updated_at).toLocaleString()} pinColor={green} />
+        </MapView></View>
+        {isOwner && trackingJourneyId === item.id && <Text style={styles.reportNote}>Here shares your position while this screen is open. Stop sharing any time.</Text>}
+      </View>}
+      {active && !isOwner && <Text style={styles.sharedNote}>You can view this shared journey.</Text>}
+      {reportingJourneyId === item.id && <View style={styles.reportForm}>
+        <Text style={styles.section}>What is happening?</Text>
+        <View style={styles.categoryList}>{incidentTypes.map(type => <Pressable key={type.key} onPress={() => setReportCategory(type.key)} style={[styles.categoryChip, reportCategory === type.key && styles.categoryChipSelected]}><Text style={[styles.categoryText, reportCategory === type.key && styles.categoryTextSelected]}>{type.label}</Text></Pressable>)}</View>
+        <TextInput value={reportDescription} onChangeText={setReportDescription} style={styles.reportInput} placeholder="Add a short description" placeholderTextColor="#a6afab" multiline maxLength={500} textAlignVertical="top" />
+        <Text style={styles.reportNote}>Your current location will be attached. Reports are unverified and expire after 7 days. For emergencies, contact local emergency services.</Text>
+        <Pressable disabled={reportBusy} onPress={() => void submitIncidentReport()} style={styles.reportSubmit}>{reportBusy ? <ActivityIndicator color="white" /> : <Text style={styles.primaryText}>Send report</Text>}</Pressable>
+      </View>}
+    </View>
+  }
+
+  function renderChatPanel(item: Journey) {
+    return <View style={styles.chatPanel}>
+      {chatMessages.length === 0 ? <Text style={styles.reportNote}>No messages yet. Say hello.</Text> : chatMessages.map(message => <View key={message.id} style={styles.chatMessage}><Text style={styles.chatAuthor}>{message.user_id === appUserId ? 'You' : 'Contact'} · {new Date(message.created_at).toLocaleTimeString()}</Text><Text style={styles.chatBody}>{message.body}</Text></View>)}
+      <View style={styles.chatComposer}><TextInput value={chatDraft} onChangeText={setChatDraft} style={styles.chatInput} placeholder="Write a message" placeholderTextColor="#a6afab" maxLength={1000} returnKeyType="send" onSubmitEditing={() => void sendChatMessage(item.id)} /><Pressable disabled={sendingMessage || !chatDraft.trim()} onPress={() => void sendChatMessage(item.id)} style={styles.chatSend}><Text style={styles.chatSendText}>{sendingMessage ? '…' : 'Send'}</Text></Pressable></View>
+    </View>
   }
 
   async function useCurrentLocation() {
@@ -519,18 +633,21 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
     } else setMapRegion({ latitude: place.latitude, longitude: place.longitude, latitudeDelta: 0.04, longitudeDelta: 0.04 })
   }
 
+  const currentActiveJourney = journeys.find(item => ['ACTIVE', 'OVERDUE_PENDING', 'OVERDUE_NOTIFIED'].includes(item.status)) ?? null
+  const selectedChatJourney = journeys.find(item => item.id === openChatJourneyId) ?? null
+
   if (loading) return <SafeAreaView style={styles.center}><ActivityIndicator color={green} /></SafeAreaView>
   if (!supabase) return <SafeAreaView style={styles.center}><Text style={styles.title}>Connect Supabase</Text><Text style={styles.copy}>Copy mobile/.env.example to mobile/.env and add your project URL and publishable key.</Text></SafeAreaView>
 
   return <SafeAreaView style={styles.safe}>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView ref={scrollRef} contentContainerStyle={[styles.page, !session && styles.authPage]} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scrollRef} style={styles.flexScroll} contentContainerStyle={[styles.page, !session && styles.authPage]} keyboardShouldPersistTaps="handled">
         <View style={styles.top}>
           <View><AnimatedBrandMark active={playBrandAnimation} /><Text style={styles.kicker}>stay connected to every journey</Text></View>
           {session && <View style={styles.headerActions}>
             <Pressable onPress={() => void signOut()}><Text style={styles.link}>Sign out</Text></Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel={quickMenuOpen ? 'Close quick actions' : 'Open quick actions'} onPress={() => { setQuickMenuOpen(!quickMenuOpen); setQuickAction(null) }} style={styles.menuButton}>
-              <Text style={styles.menuButtonText}>{quickMenuOpen ? '×' : '☰'}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={quickMenuOpen ? 'Close more options' : 'Open more options'} onPress={() => { setQuickMenuOpen(!quickMenuOpen); setQuickAction(null) }} style={styles.menuButton}>
+              <Text style={styles.menuButtonText}>{quickMenuOpen ? '×' : '⋯'}</Text>
             </Pressable>
           </View>}
         </View>
@@ -557,7 +674,7 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
           <Primary title={registering ? 'Create account' : 'Continue'} busy={busy} onPress={authenticate} />
           <Pressable onPress={() => setRegistering(!registering)} style={styles.switch}><Text style={styles.link}>{registering ? 'I already have an account' : 'Create an account'}</Text></Pressable>
         </View> : showJourneyForm ? <>
-          <Pressable onPress={() => { setShowJourneyForm(false); setQuickMenuOpen(false) }} style={styles.backButton}><Text style={styles.link}>‹  Your journeys</Text></Pressable>
+          <Pressable onPress={() => { setShowJourneyForm(false); setActiveTab('home'); setQuickMenuOpen(false) }} style={styles.backButton}><Text style={styles.link}>‹  Home</Text></Pressable>
           <View style={styles.heading}><Text style={styles.title}>Plan a journey</Text><Text style={styles.copy}>Choose where you’re going and who should know when you arrive.</Text></View>
           <View style={styles.card}>
             <Text style={styles.section}>Journey details</Text>
@@ -578,57 +695,43 @@ function AppContent({ playBrandAnimation }: { playBrandAnimation: boolean }) {
             <Field label="Contact email" value={journey.contactEmail} onChangeText={v => setJourney({ ...journey, contactEmail: v })} keyboardType="email-address" autoCapitalize="none" />
             <Primary title="Save journey" busy={busy} onPress={createJourney} />
           </View>
-        </> : <>
-          <View style={styles.heading}><Text style={styles.title}>Plan your journey</Text><Text style={styles.copy}>Let someone you trust know when you expect to arrive.</Text></View>
-          <Pressable onPress={() => { setShowJourneyForm(true); setQuickMenuOpen(false); if (!origin) void useCurrentLocation() }} style={styles.addButton}><Text style={styles.addText}>＋  Plan a journey</Text></Pressable>
-          <View style={styles.incidentMapCard}>
-            <View style={styles.incidentMapHeader}><View><Text style={styles.section}>Community reports</Text><Text style={styles.copy}>{incidents.length ? `${incidents.length} recent report${incidents.length === 1 ? '' : 's'} on the map` : 'No recent reports yet'}</Text></View><Pressable onPress={() => void useCurrentLocation()}><Text style={styles.link}>Center on me</Text></Pressable></View>
-            {incidentLoadError ? <Text style={styles.reportNote}>{incidentLoadError}</Text> : <View style={styles.incidentMapFrame}><MapView style={styles.map} region={incidentMapRegion} onRegionChangeComplete={setIncidentMapRegion}>
-              {incidents.map(report => <Marker key={report.id} coordinate={{ latitude: report.latitude, longitude: report.longitude }} title={report.title} description={`${report.verification_status.replaceAll('_', ' ')} · ${report.description}`} pinColor={report.verification_status === 'confirmed' ? '#278660' : '#ce6d54'} />)}
-              {origin && <Marker coordinate={origin} title="Your current location" pinColor={green} />}
-            </MapView></View>}
-            <Text style={styles.reportNote}>Community reports are unverified unless marked confirmed. For emergencies, contact local emergency services.</Text>
-            {!!incidentLoadError && <Pressable onPress={() => void loadIncidentReports()} style={styles.retryReports}><Text style={styles.link}>Try again</Text></Pressable>}
+        </> : activeTab === 'home' ? <>
+          <View style={styles.homeHero}>
+            <Text style={styles.title}>Plan your journey</Text>
+            <Text style={styles.copy}>A little more peace of mind for the people who care.</Text>
+            <Pressable onPress={() => { setShowJourneyForm(true); setQuickMenuOpen(false); if (!origin) void useCurrentLocation() }} style={styles.homePlanButton}><Text style={styles.homePlanText}>＋  Plan a journey</Text></Pressable>
           </View>
-          <View style={styles.heading}><Text style={styles.title}>Your journeys</Text><Text style={styles.copy}>Your active plans and shared trips.</Text></View>
-          {journeys.length === 0 ? <View style={styles.empty}><Text style={styles.emptyIcon}>⌁</Text><Text style={styles.section}>No journeys yet</Text><Text style={styles.copy}>Your plans will appear here.</Text></View> : journeys.map(item => {
-            const active = ['ACTIVE', 'OVERDUE_PENDING', 'OVERDUE_NOTIFIED'].includes(item.status)
-            const isOwner = item.owner_user_id === appUserId
-            const liveLocation = locationsByJourney[item.id]
-            const locationIsFresh = liveLocation && Date.now() - new Date(liveLocation.updated_at).getTime() < 120000
-            return <View style={styles.card} key={item.id} onLayout={event => { journeyCardOffsets.current[item.id] = event.nativeEvent.layout.y }}>
-              <View style={styles.cardHead}><View style={[styles.dot, item.status === 'OVERDUE_PENDING' && styles.overdueDot]} /><Text style={[styles.status, item.status === 'OVERDUE_PENDING' && styles.overdueStatus]}>{journeyStatusLabel(item.status)}</Text></View>
-              <Text style={styles.destination}>{item.destination_label}</Text>
-              <Text style={styles.copy}>Arrive by {new Date(item.eta).toLocaleString()}</Text>
-              <Text style={styles.contact}>Shared with {item.contact_name}</Text>
-              {active && isOwner && <View style={styles.actions}>
-                <Pressable disabled={busy} onPress={() => void updateJourney(item, 'arrive')} style={styles.actionButton}><Text style={styles.actionText}>I arrived</Text></Pressable>
-                <Pressable disabled={busy} onPress={() => void updateJourney(item, 'extend')} style={styles.actionButton}><Text style={styles.actionText}>+30 min</Text></Pressable>
-                <Pressable disabled={busy} onPress={() => confirmCancel(item)} style={styles.actionButton}><Text style={styles.cancelText}>Cancel</Text></Pressable>
-              </View>}
-              {liveLocation && <View style={styles.liveLocationPanel}>
-                <Text style={styles.liveLocationLabel}>{locationIsFresh ? 'Live location' : 'Last shared location'} · {new Date(liveLocation.updated_at).toLocaleTimeString()}</Text>
-                <View style={styles.liveMapFrame}><MapView style={styles.map} initialRegion={{ latitude: liveLocation.latitude, longitude: liveLocation.longitude, latitudeDelta: 0.025, longitudeDelta: 0.025 }}>
-                  <Marker coordinate={{ latitude: liveLocation.latitude, longitude: liveLocation.longitude }} title={locationIsFresh ? 'Shared live location' : 'Last shared location'} description={new Date(liveLocation.updated_at).toLocaleString()} pinColor={green} />
-                </MapView></View>
-                {isOwner && trackingJourneyId === item.id && <Text style={styles.reportNote}>Here shares your position while this screen is open. Stop sharing any time.</Text>}
-              </View>}
-              {active && !isOwner && <Text style={styles.sharedNote}>You can view this shared journey.</Text>}
-              {openChatJourneyId === item.id && <View style={styles.chatPanel}>
-                {chatMessages.length === 0 ? <Text style={styles.reportNote}>No messages yet. Say hello.</Text> : chatMessages.map(message => <View key={message.id} style={styles.chatMessage}><Text style={styles.chatAuthor}>{message.user_id === appUserId ? 'You' : 'Contact'} · {new Date(message.created_at).toLocaleTimeString()}</Text><Text style={styles.chatBody}>{message.body}</Text></View>)}
-                <View style={styles.chatComposer}><TextInput value={chatDraft} onChangeText={setChatDraft} style={styles.chatInput} placeholder="Write a message" placeholderTextColor="#a6afab" maxLength={1000} returnKeyType="send" onSubmitEditing={() => void sendChatMessage(item.id)} /><Pressable disabled={sendingMessage || !chatDraft.trim()} onPress={() => void sendChatMessage(item.id)} style={styles.chatSend}><Text style={styles.chatSendText}>{sendingMessage ? '…' : 'Send'}</Text></Pressable></View>
-              </View>}
-              {reportingJourneyId === item.id && <View style={styles.reportForm}>
-                <Text style={styles.section}>What is happening?</Text>
-                <View style={styles.categoryList}>{incidentTypes.map(type => <Pressable key={type.key} onPress={() => setReportCategory(type.key)} style={[styles.categoryChip, reportCategory === type.key && styles.categoryChipSelected]}><Text style={[styles.categoryText, reportCategory === type.key && styles.categoryTextSelected]}>{type.label}</Text></Pressable>)}</View>
-                <TextInput value={reportDescription} onChangeText={setReportDescription} style={styles.reportInput} placeholder="Add a short description" placeholderTextColor="#a6afab" multiline maxLength={500} textAlignVertical="top" />
-                <Text style={styles.reportNote}>Your current location will be attached. Reports are unverified and expire after 7 days. For emergencies, contact local emergency services.</Text>
-                <Pressable disabled={reportBusy} onPress={() => void submitIncidentReport()} style={styles.reportSubmit}>{reportBusy ? <ActivityIndicator color="white" /> : <Text style={styles.primaryText}>Send report</Text>}</Pressable>
-              </View>}
-            </View>
-          })}
+          <View style={styles.heading}><Text style={styles.section}>Quick actions</Text><Text style={styles.copy}>Tap a shortcut to get started.</Text></View>
+          <View style={styles.shortcutGrid}>
+            <Pressable onPress={() => openQuickAction('live')} style={styles.shortcutTile}><Text style={styles.shortcutIcon}>⌖</Text><Text style={styles.shortcutTitle}>Share live</Text></Pressable>
+            <Pressable onPress={() => openQuickAction('report')} style={styles.shortcutTile}><Text style={[styles.shortcutIcon, styles.reportShortcutIcon]}>!</Text><Text style={styles.shortcutTitle}>Report incident</Text></Pressable>
+            <Pressable onPress={() => openQuickAction('chat')} style={styles.shortcutTile}><Text style={styles.shortcutIcon}>▤</Text><Text style={styles.shortcutTitle}>Chat</Text></Pressable>
+            <Pressable onPress={() => openQuickAction('share')} style={styles.shortcutTile}><Text style={styles.shortcutIcon}>↗</Text><Text style={styles.shortcutTitle}>Share journey</Text></Pressable>
+          </View>
+          <View style={styles.homeSectionHeading}><Text style={styles.section}>Active journey</Text><Pressable onPress={() => setActiveTab('journeys')}><Text style={styles.link}>See all</Text></Pressable></View>
+          {currentActiveJourney ? renderJourneyCard(currentActiveJourney, true) : <View style={styles.empty}><Text style={styles.emptyIcon}>⌁</Text><Text style={styles.section}>No active journey</Text><Text style={styles.copy}>Your next plan will show here.</Text></View>}
+          <View style={styles.homeSectionHeading}><Text style={styles.section}>Community map</Text><Pressable onPress={() => setActiveTab('map')}><Text style={styles.link}>Open map</Text></Pressable></View>
+          {renderCommunityMap(true)}
+        </> : activeTab === 'journeys' ? <>
+          <View style={styles.heading}><Text style={styles.title}>Your journeys</Text><Text style={styles.copy}>Active plans and trips shared with you.</Text></View>
+          {journeys.length === 0 ? <View style={styles.empty}><Text style={styles.emptyIcon}>⌁</Text><Text style={styles.section}>No journeys yet</Text><Text style={styles.copy}>Plan a journey to get started.</Text><Primary title="Plan a journey" busy={false} onPress={() => { setActiveTab('home'); setShowJourneyForm(true); if (!origin) void useCurrentLocation() }} /></View> : journeys.map(item => renderJourneyCard(item))}
+        </> : activeTab === 'map' ? <>
+          <View style={styles.heading}><Text style={styles.title}>Community map</Text><Text style={styles.copy}>See recent reports near you.</Text></View>
+          {renderCommunityMap()}
+        </> : <>
+          <View style={styles.heading}><Text style={styles.title}>Chat</Text><Text style={styles.copy}>Messages for your shared journeys.</Text></View>
+          {journeys.length === 0 ? <View style={styles.empty}><Text style={styles.section}>No conversations yet</Text><Text style={styles.copy}>A shared journey conversation will show here.</Text></View> : <>
+            {journeys.map(item => <Pressable key={item.id} onPress={() => setOpenChatJourneyId(item.id)} style={[styles.chatJourneyRow, openChatJourneyId === item.id && styles.chatJourneyRowSelected]}><View><Text style={styles.quickMenuTitle}>{item.destination_label}</Text><Text style={styles.quickMenuDetail}>{journeyStatusLabel(item.status)} · {item.contact_name}</Text></View><Text style={styles.link}>{openChatJourneyId === item.id ? 'Open' : 'View'}</Text></Pressable>)}
+            {selectedChatJourney ? renderChatPanel(selectedChatJourney) : <Text style={styles.reportNote}>Choose a journey above to open its chat.</Text>}
+          </>}
         </>}
       </ScrollView>
+      {session && !showJourneyForm && <View style={styles.bottomTabBar}>
+        {([{ key: 'home', icon: '⌂', label: 'Home' }, { key: 'journeys', icon: '↗', label: 'Journeys' }, { key: 'map', icon: '◎', label: 'Map' }, { key: 'chat', icon: '▤', label: 'Chat' }] as const).map(tab => <Pressable key={tab.key} accessibilityRole="button" accessibilityState={{ selected: activeTab === tab.key }} onPress={() => { setActiveTab(tab.key); setQuickMenuOpen(false); setQuickAction(null); setJourneyMenuOpenId(null); scrollRef.current?.scrollTo({ y: 0, animated: false }) }} style={styles.bottomTabItem}>
+          <Text style={[styles.bottomTabIcon, activeTab === tab.key && styles.bottomTabActive]}>{tab.icon}</Text>
+          <Text style={[styles.bottomTabLabel, activeTab === tab.key && styles.bottomTabActive]}>{tab.label}</Text>
+        </Pressable>)}
+      </View>}
     </KeyboardAvoidingView>
   </SafeAreaView>
 }
@@ -662,11 +765,14 @@ function journeyStatusLabel(status: string) {
 
 const styles = StyleSheet.create({
   appRoot: { flex: 1 }, intro: { ...StyleSheet.absoluteFill, zIndex: 10, backgroundColor: '#f5f7f5' }, introCenter: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }, introLogo: { width: 320, height: 96 }, introTagline: { color: '#18221f', fontSize: 17, fontWeight: '600', letterSpacing: 0.2, textAlign: 'center', marginTop: 14 },
-  safe: { flex: 1, backgroundColor: '#f5f7f5' }, center: { flex: 1, backgroundColor: '#f5f7f5', justifyContent: 'center', alignItems: 'center', padding: 32 }, page: { flexGrow: 1, paddingHorizontal: 22, paddingTop: 18, paddingBottom: 54, maxWidth: 600, width: '100%', alignSelf: 'center' }, authPage: { justifyContent: 'center', paddingTop: 24, paddingBottom: 24 },
+  safe: { flex: 1, backgroundColor: '#f5f7f5' }, center: { flex: 1, backgroundColor: '#f5f7f5', justifyContent: 'center', alignItems: 'center', padding: 32 }, flexScroll: { flex: 1 }, page: { flexGrow: 1, paddingHorizontal: 22, paddingTop: 18, paddingBottom: 22, maxWidth: 600, width: '100%', alignSelf: 'center' }, authPage: { justifyContent: 'center', paddingTop: 24, paddingBottom: 24 },
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }, headerActions: { flexDirection: 'row', alignItems: 'center', gap: 14 }, menuButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', shadowColor: '#23352e', shadowOpacity: 0.08, shadowRadius: 8, elevation: 2 }, menuButtonText: { color: green, fontSize: 22, fontWeight: '600', lineHeight: 26 }, quickMenu: { backgroundColor: 'white', borderRadius: 19, padding: 16, marginBottom: 20, shadowColor: '#23352e', shadowOpacity: 0.07, shadowRadius: 12, elevation: 2 }, quickMenuRow: { backgroundColor: '#f4f6f4', borderRadius: 13, padding: 13, marginTop: 9 }, quickMenuTitle: { color: ink, fontWeight: '600', fontSize: 14 }, quickMenuDetail: { color: muted, fontSize: 12, lineHeight: 17, marginTop: 4 }, quickMenuBack: { alignSelf: 'flex-start', marginTop: 14 }, backButton: { alignSelf: 'flex-start', paddingVertical: 7, marginBottom: 10 }, brandAnimation: { width: 156, height: 40, marginLeft: -3 }, kicker: { color: muted, fontSize: 12, marginTop: 2 }, heading: { marginBottom: 22 }, title: { color: ink, fontSize: 27, fontWeight: '700', letterSpacing: -0.7 }, copy: { color: muted, fontSize: 14, lineHeight: 21, marginTop: 7 },
   authCard: { backgroundColor: 'white', borderRadius: 24, padding: 22, shadowColor: '#25352f', shadowOpacity: 0.07, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 3 }, field: { flex: 1, marginTop: 17 }, label: { fontSize: 12, color: muted, marginBottom: 8, marginLeft: 3 }, input: { minHeight: 50, backgroundColor: '#f4f6f4', borderRadius: 15, paddingHorizontal: 15, color: ink, fontSize: 15 },
   primary: { minHeight: 52, borderRadius: 17, backgroundColor: green, alignItems: 'center', justifyContent: 'center', marginTop: 21, shadowColor: green, shadowOpacity: 0.17, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 }, primaryText: { color: 'white', fontWeight: '600', fontSize: 15 }, switch: { alignItems: 'center', paddingTop: 19 }, link: { color: green, fontSize: 14, fontWeight: '600' },
   addButton: { backgroundColor: 'white', paddingVertical: 17, borderRadius: 17, alignItems: 'center', marginBottom: 18, shadowColor: '#23352e', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 }, addText: { color: green, fontWeight: '600', fontSize: 15 }, card: { backgroundColor: 'white', borderRadius: 21, padding: 19, marginBottom: 14, shadowColor: '#23352e', shadowOpacity: 0.055, shadowRadius: 15, shadowOffset: { width: 0, height: 5 }, elevation: 2 }, cardHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 11 }, dot: { width: 8, height: 8, borderRadius: 8, backgroundColor: '#54a789', marginRight: 8 }, overdueDot: { backgroundColor: '#c96f49' }, status: { color: green, fontSize: 11, fontWeight: '700', letterSpacing: 0.6 }, overdueStatus: { color: '#a34831' }, destination: { color: ink, fontWeight: '700', fontSize: 19 }, contact: { color: muted, fontSize: 12, marginTop: 14 }, sharedNote: { color: muted, fontSize: 12, marginTop: 14 }, actions: { flexDirection: 'row', gap: 8, marginTop: 18 }, actionButton: { flex: 1, minHeight: 40, paddingHorizontal: 8, borderRadius: 12, backgroundColor: '#f1f6f3', alignItems: 'center', justifyContent: 'center' }, actionText: { color: green, fontWeight: '600', fontSize: 12 }, cancelText: { color: '#a34848', fontWeight: '600', fontSize: 12 }, reportToggle: { marginTop: 16, alignSelf: 'flex-start' }, reportForm: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#edf0ee' }, categoryList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }, categoryChip: { borderRadius: 14, paddingVertical: 8, paddingHorizontal: 11, backgroundColor: '#f1f4f2' }, categoryChipSelected: { backgroundColor: '#dceee7' }, categoryText: { color: muted, fontSize: 12 }, categoryTextSelected: { color: green, fontWeight: '600' }, reportInput: { minHeight: 86, marginTop: 14, padding: 13, borderRadius: 13, backgroundColor: '#f4f6f4', color: ink, fontSize: 14 }, reportNote: { color: muted, fontSize: 11, lineHeight: 16, marginTop: 10 }, reportSubmit: { minHeight: 46, marginTop: 14, borderRadius: 14, backgroundColor: green, alignItems: 'center', justifyContent: 'center' }, section: { color: ink, fontWeight: '600', fontSize: 16, marginBottom: 3 }, row: { flexDirection: 'row', gap: 12 }, mapTools: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }, mapFrame: { height: 250, borderRadius: 19, overflow: 'hidden', marginTop: 10, backgroundColor: '#e8efeb' }, map: { flex: 1 }, coordinates: { color: muted, fontSize: 11, lineHeight: 17, marginTop: 8, marginLeft: 3 }, empty: { alignItems: 'center', backgroundColor: 'white', borderRadius: 22, padding: 30, marginTop: 4 }, emptyIcon: { fontSize: 30, color: '#9bbcaf', marginBottom: 9 }, searchSpinner: { marginTop: 8 }, suggestion: { paddingVertical: 12, paddingHorizontal: 14, backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#edf0ee' }, suggestionTitle: { color: ink, fontWeight: '600', fontSize: 14 }, suggestionDetail: { color: muted, fontSize: 12, marginTop: 3 }, locationHint: { marginTop: 13 }, routeSummary: { color: green, fontSize: 12, lineHeight: 18, marginTop: 11 },
-  incidentMapCard: { backgroundColor: 'white', borderRadius: 21, padding: 16, marginBottom: 18, shadowColor: '#23352e', shadowOpacity: 0.055, shadowRadius: 15, shadowOffset: { width: 0, height: 5 }, elevation: 2 }, incidentMapHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }, incidentMapFrame: { height: 220, borderRadius: 16, overflow: 'hidden', backgroundColor: '#e8efeb' }, retryReports: { alignSelf: 'flex-start', marginTop: 8 },
+  homeHero: { backgroundColor: 'white', borderRadius: 22, padding: 20, marginBottom: 22, shadowColor: '#23352e', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 }, homePlanButton: { minHeight: 48, marginTop: 17, borderRadius: 15, backgroundColor: green, alignItems: 'center', justifyContent: 'center' }, homePlanText: { color: 'white', fontWeight: '700', fontSize: 15 }, shortcutGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: -10, marginBottom: 24 }, shortcutTile: { flexBasis: '47%', flexGrow: 1, minHeight: 92, backgroundColor: 'white', borderRadius: 17, padding: 14, justifyContent: 'center', shadowColor: '#23352e', shadowOpacity: 0.04, shadowRadius: 10, elevation: 1 }, shortcutIcon: { color: green, fontSize: 25, fontWeight: '600', marginBottom: 7 }, reportShortcutIcon: { color: '#ad5b42' }, shortcutTitle: { color: ink, fontSize: 13, fontWeight: '600' }, homeSectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  bottomTabBar: { height: 66, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', backgroundColor: 'white', borderTopWidth: 1, borderTopColor: '#e8ede9', paddingHorizontal: 8 }, bottomTabItem: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6 }, bottomTabIcon: { color: '#75827b', fontSize: 21, lineHeight: 25 }, bottomTabLabel: { color: '#75827b', fontSize: 10, marginTop: 2 }, bottomTabActive: { color: green, fontWeight: '700' }, chatJourneyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, backgroundColor: 'white', borderRadius: 15, marginBottom: 9 }, chatJourneyRowSelected: { borderWidth: 1, borderColor: '#8cbba9' },
+  cardHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, cardMoreButton: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f4f6f4', marginTop: -5, marginRight: -5 }, cardMoreText: { color: green, fontSize: 23, lineHeight: 25, fontWeight: '700' }, cardMoreMenu: { backgroundColor: '#f7f8f7', borderRadius: 14, padding: 6, marginBottom: 12 }, cardMoreRow: { paddingHorizontal: 11, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e8ede9' },
+  incidentMapCard: { backgroundColor: 'white', borderRadius: 21, padding: 16, marginBottom: 18, shadowColor: '#23352e', shadowOpacity: 0.055, shadowRadius: 15, shadowOffset: { width: 0, height: 5 }, elevation: 2 }, incidentMapHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }, incidentMapFrame: { height: 220, borderRadius: 16, overflow: 'hidden', backgroundColor: '#e8efeb' }, homeMapFrame: { height: 145 }, mapOpenButton: { alignSelf: 'flex-start', marginTop: 12 }, retryReports: { alignSelf: 'flex-start', marginTop: 8 },
   liveLocationPanel: { marginTop: 14 }, liveLocationLabel: { color: green, fontWeight: '600', fontSize: 12, marginBottom: 8 }, liveMapFrame: { height: 170, borderRadius: 15, overflow: 'hidden', backgroundColor: '#e8efeb' }, chatPanel: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#edf0ee' }, chatMessage: { backgroundColor: '#f4f6f4', borderRadius: 13, padding: 11, marginBottom: 8 }, chatAuthor: { color: muted, fontSize: 10, marginBottom: 4 }, chatBody: { color: ink, fontSize: 14, lineHeight: 20 }, chatComposer: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }, chatInput: { flex: 1, minHeight: 44, paddingHorizontal: 13, borderRadius: 13, backgroundColor: '#f4f6f4', color: ink, fontSize: 14 }, chatSend: { minHeight: 42, paddingHorizontal: 15, borderRadius: 13, backgroundColor: green, alignItems: 'center', justifyContent: 'center' }, chatSendText: { color: 'white', fontWeight: '600', fontSize: 13 },
 })
